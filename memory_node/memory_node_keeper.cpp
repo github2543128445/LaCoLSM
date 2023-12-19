@@ -105,7 +105,7 @@ TimberSaw::Memory_Node_Keeper::Memory_Node_Keeper(bool use_sub_compaction,
     }
     rdma_mg->memory_nodes.insert({2*i, connection_conf});
     i++;
-  }
+}
 
   Memory_Node_Keeper::~Memory_Node_Keeper() {
     delete opts->filter_policy;
@@ -1659,9 +1659,10 @@ int Memory_Node_Keeper::server_sock_connect(const char* servername, int port) {
         std::string client_id =
             std::string(
                 inet_ntoa(((struct sockaddr_in*)(&address))->sin_addr)) +
-                    std::to_string(((struct sockaddr_in*)(&address))->sin_port);
+                    ":"+
+                      std::to_string(((struct sockaddr_in*)(&address))->sin_port);
         // Client id must be composed of ip address and port number.
-        std::cout << "connection built up from" << client_id << std::endl;
+        std::cout << "connection built up from " << client_id << std::endl;
         std::cout << "connection family is " << address.sa_family << std::endl;
         if (sockfd < 0) {
           fprintf(stderr, "Connection accept error, erron: %d\n", errno);

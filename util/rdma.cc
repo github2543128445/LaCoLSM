@@ -1223,17 +1223,21 @@ int RDMA_Manager::resources_create() {
   }
   fprintf(stdout, "found %d device(s)\n", num_devices);
   /* search for the specific device we want to work with */
-  for (i = 0; i < num_devices; i++) {
-    if (!rdma_config.dev_name) {
-      rdma_config.dev_name = strdup(ibv_get_device_name(dev_list[i]));
-      fprintf(stdout, "device not specified, using first one found: %s\n",
-              rdma_config.dev_name);
-    }
-    if (!strcmp(ibv_get_device_name(dev_list[i]), rdma_config.dev_name)) {
-      ib_dev = dev_list[i];
-      break;
-    }
-  }
+  rdma_config.dev_name = strdup(ibv_get_device_name(dev_list[1]));
+  fprintf(stdout, "device specified, using:%s\n",rdma_config.dev_name);
+  if (!strcmp(ibv_get_device_name(dev_list[1]), rdma_config.dev_name)) ib_dev = dev_list[i];
+
+  // for (i = 0; i < num_devices; i++) {
+  //   if (!rdma_config.dev_name) {
+  //     rdma_config.dev_name = strdup(ibv_get_device_name(dev_list[i]));
+  //     fprintf(stdout, "device not specified, using first one found: %s\n",
+  //             rdma_config.dev_name);
+  //   }
+  //   if (!strcmp(ibv_get_device_name(dev_list[i]), rdma_config.dev_name)) {
+  //     ib_dev = dev_list[i];
+  //     break;
+  //   }
+  // }
   /* if the device wasn't found in host */
   if (!ib_dev) {
     fprintf(stderr, "IB device %s wasn't found\n", rdma_config.dev_name);
@@ -1971,7 +1975,7 @@ int RDMA_Manager::sock_sync_data(int sock, int xfer_size, char* local_data,
   printf("total bytes: %d\n", xfer_size);
   while (!rc && total_read_bytes < xfer_size) {
     read_bytes = read(sock, remote_data, xfer_size);
-    printf("read byte: %d", read_bytes);
+    printf("read byte: %d\n", read_bytes);
     if (read_bytes > 0)
       total_read_bytes += read_bytes;
     else
