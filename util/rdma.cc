@@ -1225,7 +1225,7 @@ int RDMA_Manager::resources_create() {
   /* search for the specific device we want to work with */
   rdma_config.dev_name = strdup(ibv_get_device_name(dev_list[1]));
   fprintf(stdout, "device specified, using:%s\n",rdma_config.dev_name);
-  if (!strcmp(ibv_get_device_name(dev_list[1]), rdma_config.dev_name)) ib_dev = dev_list[i];
+  if (!strcmp(ibv_get_device_name(dev_list[1]), rdma_config.dev_name)) ib_dev = dev_list[1];
 
   // for (i = 0; i < num_devices; i++) {
   //   if (!rdma_config.dev_name) {
