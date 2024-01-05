@@ -459,13 +459,13 @@ class Stats {
 
       char rate[100];
       std::snprintf(rate, sizeof(rate), "%6.1f MB/s",
-                    (bytes_ / 1048576.0) / elapsed);
+                    (bytes_ / 1048576.0) / elapsed);  //带宽的计算是总带宽
       extra = rate;
     }
     AppendWithSpace(&extra, message_);
 
     std::fprintf(stdout, "%-12s: %8.3f micros/op; %ld ops/sec;%s%s\n",
-                 name.ToString().c_str(), seconds_ * 1e6 / done_, (long)(done_/elapsed),
+                 name.ToString().c_str(), seconds_ * 1e6 / done_, (long)(done_/elapsed),//时延是平均时延，吞吐是总吞吐
                  (extra.empty() ? "" : " "), extra.c_str());
 
     if (FLAGS_histogram) {
@@ -561,13 +561,13 @@ class Benchmark {
         stdout, "Values:     %d bytes each (%d bytes after compression)\n",
         FLAGS_value_size,
         static_cast<int>(FLAGS_value_size * FLAGS_compression_ratio + 0.5));
-    std::fprintf(stdout, "Entries:    %d\n", num_);
+    std::fprintf(stdout, "Each thread entries:    %d\nWhole entries:    %d\n", num_, num_ *FLAGS_threads);
     std::fprintf(stdout, "RawSize:    %.1f MB (estimated)\n",
-                 ((static_cast<int64_t>(kKeySize + FLAGS_value_size) * num_) /
+                 ((static_cast<int64_t>(kKeySize + FLAGS_value_size) * num_ *FLAGS_threads) /
                   1048576.0));
     std::fprintf(
         stdout, "FileSize:   %.1f MB (estimated)\n",
-        (((kKeySize + FLAGS_value_size * FLAGS_compression_ratio) * num_) /
+        (((kKeySize + FLAGS_value_size * FLAGS_compression_ratio) * num_ *FLAGS_threads) /
          1048576.0));
     PrintWarnings();
     std::fprintf(stdout, "------------------------------------------------\n");
@@ -860,7 +860,7 @@ class Benchmark {
     void (Benchmark::*method)(ThreadState*);
   };
 
-  static void ThreadBody(void* v) {
+  static void ThreadBody(void* v) { //线程的运行，做了同步、初始化，并通过v来运行指定的方法
     ThreadArg* arg = reinterpret_cast<ThreadArg*>(v);
     SharedState* shared = arg->shared;
     ThreadState* thread = arg->thread;
@@ -913,10 +913,10 @@ class Benchmark {
                     void (Benchmark::*method)(ThreadState*)) {
 //    printf("Bechmark start\n");
     if (method == &Benchmark::WriteRandom || method == &Benchmark::WriteRandomSharded)
-      Validation_Write();
+      Validation_Write(); //get Validation_keys -LZY
 //    if (name.ToString() == "readrandom"){
 //    }
-    SharedState shared(n);
+    SharedState shared(n); //定义了锁结构
     //TODO(chuqing): try to activate here, but failed
     ThreadArg* arg = new ThreadArg[n];
     for (int i = 0; i < n; i++) {
@@ -937,18 +937,19 @@ class Benchmark {
         numa_free_nodemask(nodes);
       }
 #endif
-      arg[i].bm = this;
+      arg[i].bm = this; //-Class Benchmarkd
       arg[i].method = method;
       arg[i].shared = &shared;
       ++total_thread_count_;
       // Seed the thread's random state deterministically based upon thread
       // creation across all benchmarks. This ensures that the seeds are unique
       // but reproducible when rerunning the same set of benchmarks.
-      arg[i].thread = new ThreadState(i, /*seed=*/1000 + total_thread_count_);
+      arg[i].thread = new ThreadState(i, /*seed=*/1000 + total_thread_count_); //以当前线程序号为种子
       arg[i].thread->shared = &shared;
       printf("start front-end threads\n");
-      g_env->StartThread(ThreadBody, &arg[i]);
+      g_env->StartThread(ThreadBody, &arg[i]);  //std::thread new_thread(thread_main, thread_main_arg); new_thread.detach(); //下发Thread
     }
+    //LZYnext
     std::thread* t_print = nullptr;
     if (FLAGS_batchprint){
       Stats batch_stat;
@@ -977,7 +978,7 @@ class Benchmark {
     for (int i = 1; i < n; i++) {
       arg[0].thread->stats.Merge(arg[i].thread->stats);
     }
-    arg[0].thread->stats.Report(name);
+    arg[0].thread->stats.Report(name); //只报告0，但实际上将所有线程进行了Merge（ops\runseconds\bytes）
     if (FLAGS_comparisons) {
       fprintf(stdout, "Comparisons: %zu\n", count_comparator_.comparisons());
       count_comparator_.reset();
@@ -1224,7 +1225,7 @@ class Benchmark {
 //    KeyBuffer key;
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
-    for (int i = 0; i < num_; i += entries_per_batch_) {
+    for (int i = 0; i < num_; i += entries_per_batch_) {//每个线程都会跑num个 -LZY
       batch.Clear();
       for (int j = 0; j < entries_per_batch_; j++) {
         //The key range should be adjustable.

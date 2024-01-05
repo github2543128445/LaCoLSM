@@ -22,7 +22,7 @@ void UnrefHandle_qp(void* ptr) {
   if (ibv_destroy_qp(static_cast<ibv_qp*>(ptr))) {
     fprintf(stderr, "Thread local qp failed to destroy QP\n");
   } else {
-    printf("thread local qp destroy successfully!\n");
+    //printf("thread local qp destroy successfully!\n"); LZY
   }
 }
 void UnrefHandle_cq(void* ptr) {
@@ -30,7 +30,7 @@ void UnrefHandle_cq(void* ptr) {
   if (ibv_destroy_cq(static_cast<ibv_cq*>(ptr))) {
     fprintf(stderr, "Thread local cq failed to destroy QP\n");
   } else {
-    printf("thread local cq destroy successfully!\n");
+    //printf("thread local cq destroy successfully!\n"); LZY
   }
 }
 void Destroy_mr(void* ptr) {
@@ -788,7 +788,7 @@ void RDMA_Manager::ConnectQPThroughSocket(std::string qp_type, int socket_fd,
     if (!qp) {
       fprintf(stderr, "failed to create QP\n");
     }
-    fprintf(stdout, "QP was created, QP number=0x%x\n", qp->qp_num);
+    //fprintf(stdout, "QP was created, QP number=0x%x\n", qp->qp_num); LZY
 //  Used to be "ibv_qp* qp = create_qp(shard_target_node_id, true, qp_type);", but the
     // shard_target_node_id is not available so we unwrap the function
   local_con_data.qp_num = htonl(qp->qp_num);
@@ -796,7 +796,7 @@ void RDMA_Manager::ConnectQPThroughSocket(std::string qp_type, int socket_fd,
   memcpy(local_con_data.gid, &res->my_gid, 16);
   printf("checkpoint2\n");
 
-  fprintf(stdout, "Local LID = 0x%x\n", res->port_attr.lid);
+  //fprintf(stdout, "Local LID = 0x%x\n", res->port_attr.lid); LZY
 
   if (sock_sync_data(socket_fd, sizeof(struct registered_qp_config),
       (char*)&local_con_data, (char*)&tmp_con_data) < 0) {
@@ -805,8 +805,8 @@ void RDMA_Manager::ConnectQPThroughSocket(std::string qp_type, int socket_fd,
   remote_con_data->qp_num = ntohl(tmp_con_data.qp_num);
   remote_con_data->lid = ntohs(tmp_con_data.lid);
   memcpy(remote_con_data->gid, tmp_con_data.gid, 16);
-  fprintf(stdout, "Remote QP number = 0x%x\n", remote_con_data->qp_num);
-  fprintf(stdout, "Remote LID = 0x%x\n", remote_con_data->lid);
+  //fprintf(stdout, "Remote QP number = 0x%x\n", remote_con_data->qp_num); LZY
+  //fprintf(stdout, "Remote LID = 0x%x\n", remote_con_data->lid); LZY
   remote_con_data->node_id = tmp_con_data.node_id;
   target_node_id = tmp_con_data.node_id;
   std::unique_lock<std::shared_mutex> l(qp_cq_map_mutex);
@@ -886,12 +886,12 @@ bool RDMA_Manager::Local_Memory_Register(char** p2buffpointer,
       printf("Register memory at memory node for computing node\n");
   total_assigned_memory_size =
       total_assigned_memory_size + (*p2mrpointer)->length;
-  fprintf(stdout,
-          "New MR was registered with addr=%p, lkey=0x%x, rkey=0x%x, flags=0x%x, size=%lu, total registered size is %Lf, chunk type is %d\n",
-          (*p2mrpointer)->addr, (*p2mrpointer)->lkey, (*p2mrpointer)->rkey,
-          mr_flags, size,
-          total_assigned_memory_size /(1024.0L*1024.0L*1024.0L), pool_name);
-
+  // fprintf(stdout,
+  //         "New MR was registered with addr=%p, lkey=0x%x, rkey=0x%x, flags=0x%x, size=%lu, total registered size is %Lf, chunk type is %d\n",
+  //         (*p2mrpointer)->addr, (*p2mrpointer)->lkey, (*p2mrpointer)->rkey,
+  //         mr_flags, size,
+  //         total_assigned_memory_size /(1024.0L*1024.0L*1024.0L), pool_name);
+  // LZY
 
   return true;
 };
@@ -1345,7 +1345,7 @@ bool RDMA_Manager::Get_Remote_qp_Info_Then_Connect(uint8_t target_node_id) {
   local_con_data.lid = htons(res->port_attr.lid);
   memcpy(local_con_data.gid, &my_gid, 16);
   local_con_data.node_id = node_id;
-  fprintf(stdout, "\nLocal LID = 0x%x\n", res->port_attr.lid);
+  //fprintf(stdout, "\nLocal LID = 0x%x\n", res->port_attr.lid); LZY
   if (sock_sync_data(res->sock_map[target_node_id], sizeof(struct registered_qp_config),
                      (char*)&local_con_data, (char*)&tmp_con_data) < 0) {
     fprintf(stderr, "failed to exchange connection data between sides\n");
@@ -1355,8 +1355,8 @@ bool RDMA_Manager::Get_Remote_qp_Info_Then_Connect(uint8_t target_node_id) {
   remote_con_data->lid = ntohs(tmp_con_data.lid);
   memcpy(remote_con_data->gid, tmp_con_data.gid, 16);
 
-  fprintf(stdout, "Remote QP number = 0x%x\n", remote_con_data->qp_num);
-  fprintf(stdout, "Remote LID = 0x%x\n", remote_con_data->lid);
+  //fprintf(stdout, "Remote QP number = 0x%x\n", remote_con_data->qp_num); LZY
+  //fprintf(stdout, "Remote LID = 0x%x\n", remote_con_data->lid); LZY
   std::unique_lock<std::shared_mutex> l(qp_cq_map_mutex);
   if (qp_type == "read_local" ){
     assert(local_read_qp_info.at(target_node_id) != nullptr);
@@ -1531,7 +1531,7 @@ ibv_qp* RDMA_Manager::create_qp_Mside(bool seperated_cq,
   }
 
     qp_map_Mside[qp_id] = qp;
-  fprintf(stdout, "QP was created, QP number=0x%x\n", qp->qp_num);
+  //fprintf(stdout, "QP was created, QP number=0x%x\n", qp->qp_num); LZY
   //  uint8_t* p = qp->gid;
   //  fprintf(stdout,
   //          "Remote GID =%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x\n ",
@@ -1616,7 +1616,7 @@ ibv_qp* RDMA_Manager::create_qp(uint8_t target_node_id, bool seperated_cq,
 //    qp_local_write_compact->Reset(qp);
   else
     res->qp_map[target_node_id] = qp;
-  fprintf(stdout, "QP was created, QP number=0x%x\n", qp->qp_num);
+  //fprintf(stdout, "QP was created, QP number=0x%x\n", qp->qp_num); LZY
 //  uint8_t* p = qp->gid;
 //  fprintf(stdout,
 //          "Remote GID =%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x\n ",
@@ -1649,10 +1649,11 @@ int RDMA_Manager::connect_qp_Mside(ibv_qp* qp, std::string& q_id) {
   l.unlock();
   if (rdma_config.gid_idx >= 0) {
     uint8_t* p = remote_con_data->gid;
-    fprintf(stdout,
-            "Remote GID =%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x\n ",
-            p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9], p[10],
-            p[11], p[12], p[13], p[14], p[15]);
+    // fprintf(stdout,
+    //         "Remote GID =%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x\n ",
+    //         p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9], p[10],
+    //         p[11], p[12], p[13], p[14], p[15]);
+    // LZY
   }
   /* modify the QP to init */
   rc = modify_qp_to_init(qp);
@@ -1676,7 +1677,7 @@ int RDMA_Manager::connect_qp_Mside(ibv_qp* qp, std::string& q_id) {
   //  else{
   //    printf("connection built up!\n");
   //  }
-  fprintf(stdout, "QP %p state was change to RTS\n", qp);
+  //fprintf(stdout, "QP %p state was change to RTS\n", qp); LZY
 /* sync to make sure that both sides are in states that they can connect to prevent packet loose */
 connect_qp_exit:
   return rc;
@@ -1732,10 +1733,11 @@ int RDMA_Manager::connect_qp(ibv_qp* qp, std::string& qp_type,
   l.unlock();
   if (rdma_config.gid_idx >= 0) {
     uint8_t* p = remote_con_data->gid;
-    fprintf(stdout,
-            "Remote GID =%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x\n ",
-            p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9], p[10],
-            p[11], p[12], p[13], p[14], p[15]);
+    // fprintf(stdout,
+    //         "Remote GID =%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x\n ",
+    //         p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9], p[10],
+    //         p[11], p[12], p[13], p[14], p[15]);
+    // LZY
   }
   /* modify the QP to init */
   rc = modify_qp_to_init(qp);
@@ -1759,7 +1761,7 @@ int RDMA_Manager::connect_qp(ibv_qp* qp, std::string& qp_type,
 //  else{
 //    printf("connection built up!\n");
 //  }
-  fprintf(stdout, "QP %p state was change to RTS\n", qp);
+  //fprintf(stdout, "QP %p RTS\n", qp);LZY
 /* sync to make sure that both sides are in states that they can connect to prevent packet loose */
 connect_qp_exit:
   return rc;
@@ -1784,10 +1786,11 @@ int RDMA_Manager::connect_qp(ibv_qp* qp, registered_qp_config* remote_con_data) 
 
   if (rdma_config.gid_idx >= 0) {
     uint8_t* p = remote_con_data->gid;
-    fprintf(stdout,
-            "Remote GID =%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x\n ",
-            p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9], p[10],
-            p[11], p[12], p[13], p[14], p[15]);
+    // fprintf(stdout,
+    //         "Remote GID =%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x\n ",
+    //         p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9], p[10],
+    //         p[11], p[12], p[13], p[14], p[15]);
+    // LZY
   }
   /* modify the QP to init */
   rc = modify_qp_to_init(qp);
@@ -1808,7 +1811,7 @@ int RDMA_Manager::connect_qp(ibv_qp* qp, registered_qp_config* remote_con_data) 
     fprintf(stderr, "failed to modify QP state to RTS\n");
     goto connect_qp_exit;
   }
-  fprintf(stdout, "QP %p state was change to RTS\n", qp);
+  //fprintf(stdout, "QP %p state was change to RTS\n", qp); LZY
   /* sync to make sure that both sides are in states that they can connect to prevent packet loose */
   connect_qp_exit:
   return rc;
@@ -3025,10 +3028,10 @@ bool RDMA_Manager::Remote_Query_Pair_Connection(std::string& qp_type,
   send_pointer = (RDMA_Request*)send_mr.addr;
   send_pointer->command = create_qp_;
   send_pointer->content.qp_config.qp_num = qp->qp_num;
-  fprintf(stdout, "\nQP num to be sent = 0x%x\n", qp->qp_num);
+  //fprintf(stdout, "\nQP num to be sent = 0x%x\n", qp->qp_num); LZY
   send_pointer->content.qp_config.lid = res->port_attr.lid;
   memcpy(send_pointer->content.qp_config.gid, &my_gid, 16);
-  fprintf(stdout, "Local LID = 0x%x\n", res->port_attr.lid);
+  //fprintf(stdout, "Local LID = 0x%x\n", res->port_attr.lid); LZY
   send_pointer->buffer = receive_mr.addr;
   send_pointer->rkey = receive_mr.rkey;
   RDMA_Reply* receive_pointer;
@@ -3073,8 +3076,8 @@ bool RDMA_Manager::Remote_Query_Pair_Connection(std::string& qp_type,
   else
     res->qp_main_connection_info.insert({target_node_id,temp_buff});
   l1.unlock();
-  fprintf(stdout, "Remote QP number=0x%x\n", temp_buff->qp_num);
-  fprintf(stdout, "Remote LID = 0x%x\n", temp_buff->lid);
+  //fprintf(stdout, "Remote QP number=0x%x\n", temp_buff->qp_num); LZY
+  //fprintf(stdout, "Remote LID = 0x%x\n", temp_buff->lid); LZY
   // te,p_buff will have the informatin for the remote query pair,
   // use this information for qp connection.
   connect_qp(qp, qp_type, target_node_id);
@@ -3201,9 +3204,10 @@ retry:
       Local_Memory_Register(&buff, &mr,
   name_to_allocated_size.at(pool_name) == 0 ?
       1024*1024*1024:name_to_allocated_size.at(pool_name), pool_name);
-      if (node_id%2 == 1)
-        printf("Memory used up, Initially, allocate new one, memory pool is %s, total memory this pool is %lu\n",
-               EnumStrings[pool_name], name_to_mem_pool.at(pool_name).size());
+      // if (node_id%2 == 1)
+      //   printf("Memory used up, Initially, allocate new one, memory pool is %s, total memory this pool is %lu\n",
+      //          EnumStrings[pool_name], name_to_mem_pool.at(pool_name).size());
+      //LZY
     }
     mem_write_lock.unlock();
     mem_read_lock.lock();
@@ -3265,11 +3269,12 @@ retry:
     char* buff = new char[chunk_size];
     Local_Memory_Register(&buff, &mr_to_allocate,name_to_allocated_size.at(pool_name) == 0 ?
                                                                                             1024*1024*1024:name_to_allocated_size.at(pool_name), pool_name);
-    if (node_id%2 == 1)
-      printf("Memory used up, allocate new one, memory pool is %s, total memory is %lu\n",
-             EnumStrings[pool_name], Calculate_size_of_pool(DataChunk)+
-                                         Calculate_size_of_pool(IndexChunk) +Calculate_size_of_pool(IndexChunk_Small) +Calculate_size_of_pool(FilterChunk)
-                                         + Calculate_size_of_pool(FlushBuffer)+ Calculate_size_of_pool(Version_edit));
+    // if (node_id%2 == 1)
+    //   printf("Memory used up, allocate new one, memory pool is %s, total memory is %lu\n",
+    //          EnumStrings[pool_name], Calculate_size_of_pool(DataChunk)+
+    //                                      Calculate_size_of_pool(IndexChunk) +Calculate_size_of_pool(IndexChunk_Small) +Calculate_size_of_pool(FilterChunk)
+    //                                      + Calculate_size_of_pool(FlushBuffer)+ Calculate_size_of_pool(Version_edit));
+    // LZY
     block_index = name_to_mem_pool.at(pool_name)
                           .at(mr_to_allocate->addr)
                           ->allocate_memory_slot();

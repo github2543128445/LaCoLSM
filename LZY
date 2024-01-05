@@ -1,0 +1,25 @@
+TABLE_STRATEGY {0块寻址，1字节寻址}
+NEARDATACOMPACTION {0 Compute Compaction，1 near-data Compaction}
+
+max_background_flushes {default = 4}
+max_background_compactions {default = 12}
+MaxSubcompaction {default = 12}
+usesubcompaction {default = true}
+光改他们不行，还得改Server.cc里的Memory Node Keeper
+
+kL0_SlowdownWritesTrigger {deflaut = 16}
+kL0_StopWritesTrigger {deflaut = 32}
+
+
+
+
+
+
+
+
+mkdir -p build && cd build
+cmake -DWITH_GFLAGS=1 -DCMAKE_BUILD_TYPE=Release .. && make Server db_bench TimberSaw
+
+./db_bench --benchmarks=fillrandom,readrandom,readrandom,readrandomwriterandom --threads=16 --value_size=400 --num=100000000 --bloom_bits=10 --readwritepercent=5 --compute_node_id=0 --fixed_compute_shards_num=0
+
+rsync -av --exclude=build/ ~/louzy/dLSMt/ skv-node1:~/louzy/dLSMt
