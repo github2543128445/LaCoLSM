@@ -7,8 +7,9 @@ MaxSubcompaction {default = 12}
 usesubcompaction {default = true}
 光改他们不行，还得改Server.cc里的Memory Node Keeper
 
-kL0_SlowdownWritesTrigger {deflaut = 16}
-kL0_StopWritesTrigger {deflaut = 32}
+Immutable_StopWritesTrigger {default = 15}
+kL0_SlowdownWritesTrigger {default = 16}
+kL0_StopWritesTrigger {default = 32}
 
 
 
