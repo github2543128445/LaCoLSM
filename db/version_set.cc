@@ -1699,7 +1699,7 @@ Iterator* VersionSet::MakeInputIteratorMemoryServer(Compaction* c) {
 //  return sst->UnderCompaction;
 //}
 // TODO: Implement the file picking up for those file who exceed their peeking limit.
-bool VersionSet::PickFileToCompact(int level, Compaction* c,
+bool VersionSet::PickFileToCompact(int level, Compaction* c,  //得到需要进行Compaction的file放入current_snap->in_progress[] -LZY
                                    Version* current_snap) {
   assert(c->inputs_[0].empty());
   assert(c->inputs_[1].empty());
@@ -1717,7 +1717,7 @@ bool VersionSet::PickFileToCompact(int level, Compaction* c,
     // c->inputs_[0] earlier and replace it with an overlapping set
     // which will include the picked file.
     assert(!c->inputs_[0].empty());
-    if(current_snap->GetOverlappingInputs(level+1, &smallest, &largest, &c->inputs_[1])){
+    if(current_snap->GetOverlappingInputs(level+1, &smallest, &largest, &c->inputs_[1])){//找到level+1中与Range重叠的，放在inputs_[1]中-LZY
       //Mark all the files as undercompaction
       for (auto iter : c->inputs_[0]) {
         iter->UnderCompaction = true;
@@ -1813,7 +1813,7 @@ bool VersionSet::PickFileToCompact(int level, Compaction* c,
   return !c->inputs_[0].empty();
 
 }
-Compaction* VersionSet::PickCompaction(std::mutex* sv_mtx_within_function) {
+Compaction* VersionSet::PickCompaction(std::mutex* sv_mtx_within_function) {    
 
   Compaction* c;
   int level = 0;
@@ -1866,7 +1866,7 @@ Compaction* VersionSet::PickCompaction(std::mutex* sv_mtx_within_function) {
     c->input_version_ = current_snap;
     c->input_version_->Ref(2);
     //Recalculate the scores so that next time pick from a different level.
-    Finalize(current_snap);
+    Finalize(current_snap); //为下次做准备-LZY
 //    if (c->inputs_[1].size() == 1){
 //      printf("mark here, first level file number is %lu\n", c->inputs_[1][0]->number);
 //    }

@@ -362,7 +362,7 @@ bool MemTableList::AllFlushNotFinished() const {
 }
 // Returns the memtables that need to be flushed.
 //Pick up a configurable number of memtable, not too much and not too less.2~4 could be better
-void MemTableList::PickMemtablesToFlush(autovector<MemTable*>* mems) {
+void MemTableList::PickMemtablesToFlush(autovector<MemTable*>* mems) {//在快照中取出Memtable，切换成FLUSH_PROCESSING状态，放入mems队列 -LZY
 //  AutoThreadOperationStageUpdater stage_updater(
 //      ThreadStatus::STAGE_PICK_MEMTABLES_TO_FLUSH);
   auto current = current_.load();// get a snapshot

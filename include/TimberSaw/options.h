@@ -71,9 +71,6 @@ struct TimberSaw_EXPORT Options {
   const Comparator* comparator;
 
   int max_background_flushes = 4;// 1-1 setup is 8 M-M setup is 8, fixed shard is also 8
-
-
-
   int max_background_compactions = 12;//
   int MaxSubcompaction = 12; // 1-1 setup is 12; M-M  12 as well
   bool usesubcompaction = true;

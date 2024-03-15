@@ -1,7 +1,6 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
-
 #include "db/db_impl.h"
 #include "db/db_impl_sharding.h"
 #include "db/builder.h"
@@ -157,6 +156,8 @@ SuperVersion::SuperVersion(MemTable* new_mem, MemTableListVersion* new_imm,
   current->Ref(4);
 }
 
+//LZY new ↓
+//LZY new ↑
 
 DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
     : env_(raw_options.env),
@@ -193,6 +194,7 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
       flush_times(0)
 #endif
 {
+  for(int i=0;i<7;i++) trigger_compaction_in_level[i] = 0;
   printf("DBImpl start\n");
 #ifdef WITHPERSISTENCE
   env_->rdma_mg->Set_DB_handler(this);
@@ -290,6 +292,7 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
 //    ActivateRemoteCPURefresh();
     printf("Refresher start\n");
 }
+
 //This functon does not contain the creation of the client message handling thread
 DBImpl::DBImpl(const Options& raw_options, const std::string& dbname,
                const std::string ub, const std::string lb)
@@ -324,7 +327,7 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname,
       super_version(nullptr), local_sv_(new ThreadLocalPtr(&SuperVersionUnrefHandle)),
       shard_target_node_id(0)
 {
-
+  for(int i=0;i<7;i++) trigger_compaction_in_level[i] = 0;
   std::shared_ptr<RDMA_Manager> rdma_mg = env_->rdma_mg;
   while(rdma_mg->RPC_handler_thread_ready_num.load() != rdma_mg->memory_nodes.size());
 
@@ -352,6 +355,14 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname,
 DBImpl::~DBImpl() {
   // Wait for background work to finish.
 //  undefine_mutex.Lock();
+//LZY add ↓
+#ifdef MYDEBUG
+  for(int i=0;i<=5;i++){
+    printf("///level %d has %d compactions///\n",i,trigger_compaction_in_level[i]);
+  }
+  return;
+#endif  
+//LZY add ↑
   printf("DBImpl deallocated\n");
   printf("Cache entried used is %f\n", table_cache_->CheckUtilizaitonOfCache());
   WaitforAllbgtasks(false);
@@ -922,7 +933,7 @@ Status DBImpl::WriteLevel0Table(MemTable* job, VersionEdit* edit,
   }
 
   CompactionStats stats;
-  stats.micros = env_->NowMicros() - start_micros;
+  stats.micros = env_->NowMicros() - start_micros; //micros反映SST的大小，衡量了键值对的个数 -LZY
   stats.bytes_written = meta->file_size;
   stats_[level].Add(stats);
 //  write_stall_mutex_.AssertNotHeld();
@@ -1024,7 +1035,7 @@ Status DBImpl::WriteLevel0Table(MemTable* job, VersionEdit* edit,
 //    RecordBackgroundError(s);
 //  }
 //}
-void DBImpl::CompactMemTable() {
+void DBImpl::CompactMemTable() { //仍然是计算节点 -LZY
 //  undefine_mutex.AssertHeld();
   //TOTHINK What will happen if we remove the mutex in the future?
 
@@ -1237,7 +1248,7 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     return;
   }
   DEBUG("May be schedule a background task! \n");
-  if (imm_.IsFlushPending()) {
+  if (imm_.IsFlushPending()) {//如果准备了待flush的immutable table -LZY
 //    background_compaction_scheduled_ = true;
     void* function_args = nullptr;
     BGThreadMetadata* thread_pool_args = new BGThreadMetadata{.db = this, .func_args = function_args};
@@ -1246,7 +1257,7 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
       //If there has already be enough compaction scheduled, then drop this one
       return;
     }
-    env_->Schedule(BGWork_Flush, static_cast<void*>(thread_pool_args), type);
+    env_->Schedule(BGWork_Flush, static_cast<void*>(thread_pool_args), type);//返回相应线程池的线程个数
     DEBUG("Schedule a flushing !\n");
   }
   if (versions_->NeedsCompaction()) {
@@ -1262,17 +1273,18 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
   }
 }
 
-void DBImpl::BGWork_Flush(void* thread_arg) {
+void DBImpl::BGWork_Flush(void* thread_arg) {//触发flush-LZY
   BGThreadMetadata* p = static_cast<BGThreadMetadata*>(thread_arg);
   ((DBImpl*)p->db)->BackgroundFlush(p->func_args);
   delete static_cast<BGThreadMetadata*>(thread_arg);
 }
-void DBImpl::BGWork_Compaction(void* thread_arg) {
+void DBImpl::BGWork_Compaction(void* thread_arg) {//触发Comapction -LZY
   BGThreadMetadata* p = static_cast<BGThreadMetadata*>(thread_arg);
   ((DBImpl*)p->db)->BackgroundCompaction(p->func_args);
   delete static_cast<BGThreadMetadata*>(thread_arg);
 }
-void DBImpl::BackgroundCall() {
+void DBImpl::BackgroundCall() {//不调用-LZY
+  printf("////BackgroundCall////\n");
   //Tothink: why there is a Lock, which data structure is this mutex protecting
 //  undefine_mutex.Lock();
 //  assert(background_compaction_scheduled_);
@@ -1282,6 +1294,7 @@ void DBImpl::BackgroundCall() {
     // No more background work after a background error.
   } else {
     void* dummay_p = nullptr;
+    printf("////BackgoundCompaction////\n");
     BackgroundCompaction(dummay_p);
   }
 
@@ -1292,7 +1305,7 @@ void DBImpl::BackgroundCall() {
   MaybeScheduleFlushOrCompaction();
 //  undefine_mutex.Unlock();
 }
-void DBImpl::BackgroundFlush(void* p) {
+void DBImpl::BackgroundFlush(void* p) {//目前依然是由计算节点运行-LZY
   //Tothink: why there is a Lock, which data structure is this mutex protecting
 //  undefine_mutex.Lock();
 //  assert(background_compaction_scheduled_);
@@ -1693,7 +1706,7 @@ bool DBImpl::CheckWhetherPushDownorNot(Compaction* compact) {
 #elif NEARDATACOMPACTION == 0
   return false;
 #else
-  return true;
+  return true; //Use NearDataCompaction
 #endif
 
 }
@@ -1784,7 +1797,7 @@ bool DBImpl::CheckByteaddressableOrNot(Compaction* compact) {
 }
 
 #ifdef NEARDATACOMPACTION
-void DBImpl::BackgroundCompaction(void* p) {
+void DBImpl::BackgroundCompaction(void* p) { //参数好像没用到\目前依然是由计算节点运行-LZY
 //  if (slow_down_compaction.load()){
 //    usleep(50);
 //  }
@@ -1811,7 +1824,7 @@ void DBImpl::BackgroundCompaction(void* p) {
           (m->end ? m->end->DebugString().c_str() : "(end)"),
           (m->done ? "(end)" : manual_end.DebugString().c_str()));
     } else {
-      c = versions_->PickCompaction(&superversion_memlist_mtx);
+      c = versions_->PickCompaction(&superversion_memlist_mtx); //c中储存了待compaction的table的元数据
       //if there is no task to pick up, just return.
       if (c== nullptr){
         DEBUG("compaction task executed but not found doable task.\n");
@@ -1826,7 +1839,7 @@ void DBImpl::BackgroundCompaction(void* p) {
     if (c == nullptr) {
       // Nothing to do
     } else {
-      bool need_push_down = CheckWhetherPushDownorNot(c);
+      bool need_push_down = CheckWhetherPushDownorNot(c); //NearData-true, else-false
       if(CheckByteaddressableOrNot(c)){
 //        printf("SHould create as a byte-addressable SSTable\n");
         c->table_type = byte_addressable;
@@ -1834,12 +1847,15 @@ void DBImpl::BackgroundCompaction(void* p) {
 //        printf("SHould create as a block based SSTable\n");
         c->table_type = block_based;
       }
-
 //      versions_->table_cache_.
-      if (!is_manual && c->IsTrivialMove()) {
+      if (!is_manual && c->IsTrivialMove()) { //如果只需要简单下移level即可，没有分裂和合并,那么只需要修改元数据（应该是，我看没远程通信） -LZY
+#ifdef MYDEBUG        
+        trigger_compaction_in_level[c->level()]++;
+        //printf("///Just Move triggered in level %d is %d\n",c->level(),trigger_compaction_in_level[c->level()]);
+#endif
         // Move file to next level
         assert(c->num_input_files(0) == 1);
-        std::shared_ptr<RemoteMemTableMetaData> f = c->input(0, 0);
+        std::shared_ptr<RemoteMemTableMetaData> f = c->input(0, 0); //第level层的table元数据 -LZY
         c->edit()->RemoveFile(c->level(), f->number, f->creator_node_id);
         c->edit()->AddFile(c->level() + 1, f);
         {
@@ -1872,21 +1888,23 @@ void DBImpl::BackgroundCompaction(void* p) {
 //            status.ToString().c_str(), versions_->LevelSummary(&tmp));
        DEBUG_arg("Trival compaction< level 0 file number is %d\n", c->num_input_files(0));
 //      } else if (options_.near_data_compaction && need_push_down) {
-      } else if (need_push_down) {
+      } else if (need_push_down&&c->level()!= 0) { //NearCompaction 继续 试试level0不做近数据，其他做近数据-LZY 待：测试各level发生compaction的次数
+#ifdef MYDEBUG        
+        trigger_compaction_in_level[c->level()]++;
+        //printf("///Compaction triggered in level %d is %d\n",c->level(),trigger_compaction_in_level[c->level()]);
+#endif
        // try to let the CPU print the average CPU utilizaiton when compaciotn is triggered.
 //       if (!compaction_start){
 //          env_->rdma_mg->Print_Remote_CPU_RPC(0);
 //          compaction_start = true;
 //       }
         auto start = std::chrono::high_resolution_clock::now();
-
         // The neardata compaction branch
-        NearDataCompaction(c);
+        NearDataCompaction(c); 
         auto stop = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
 #ifdef CHECK_COMPACTION_TIME
-        if (c->level() == 0){
-
+        if (c->level() == 0){       
 //        if (c->small_compaction){
           uint64_t total_size = 0;
           uint64_t total_size_in_MB = 0;
@@ -1903,7 +1921,12 @@ void DBImpl::BackgroundCompaction(void* p) {
 //        }
 //        MaybeScheduleFlushOrCompaction();
 //        return;
-      } else {
+      } else { //no near-data compaction
+        //printf("///I did local compaction///\n");
+#ifdef MYDEBUG        
+        trigger_compaction_in_level[0]++;
+        //printf("///Compaction triggered in level 0 is %d\n",trigger_compaction_in_level[0]);
+#endif         
         auto start = std::chrono::high_resolution_clock::now();
 
         // Normal compaction branch
@@ -2499,7 +2522,7 @@ void DBImpl::NearDataCompaction(Compaction* c) {
   std::string serilized_c;
   DEBUG_arg("Compaction decoded, the first input file number is %lu \n", c->inputs_[0][0]->number);
   DEBUG_arg("Compaction decoded, input file level is %d \n", c->level());
-  c->EncodeTo(&serilized_c);
+  c->EncodeTo(&serilized_c);//c中包含了做Compaction所需的信息-LZY
   //TODO: remove the code in the bracket.
 //  {Compaction cn(&options_);
 //  cn.DecodeFrom(Slice(serilized_c), 0);
@@ -2512,7 +2535,7 @@ void DBImpl::NearDataCompaction(Compaction* c) {
 //      = recv_mr_c.rkey;
 //  memset((char*)send_mr_c.addr + serilized_c.size() + \
 //             sizeof(receive_mr.addr) + sizeof(receive_mr.rkey), 1, 1);
-  send_pointer = (RDMA_Request*)send_mr.addr;
+  send_pointer = (RDMA_Request*)send_mr.addr;//在这里进行了发送内容的设定-LZY
   send_pointer->command = near_data_compaction;
   send_pointer->content.sstCompact.buffer_size = serilized_c.size() + 1;
   send_pointer->buffer = receive_mr.addr;
@@ -2541,8 +2564,8 @@ void DBImpl::NearDataCompaction(Compaction* c) {
 #endif
   rdma_mg->post_send<RDMA_Request>(&send_mr, shard_target_node_id, std::string("main"));
   ibv_wc wc[2] = {};
-  if (rdma_mg->poll_completion(wc, 1, std::string("main"), true,
-                               shard_target_node_id)){
+  if (rdma_mg->poll_completion(wc, 1, std::string("main"), true, 
+                               shard_target_node_id)){//目前只完成握手(?)-LZY
     fprintf(stderr, "failed to poll send for remote memory register\n");
     return;
   }
@@ -2625,6 +2648,9 @@ void DBImpl::NearDataCompaction(Compaction* c) {
   // set all the buffer bytes as '\0'
 //  volatile unsigned char* polling_size_2 = (unsigned char*)recv_mr_c.addr + buffer_size - 1;
 //  *polling_size_2 = 0;
+#ifdef  MYDEBUG
+  //printf("///cp 1///\n\n");
+#endif
   asm volatile ("sfence\n" : : );
   asm volatile ("lfence\n" : : );
   asm volatile ("mfence\n" : : );
@@ -2640,7 +2666,9 @@ void DBImpl::NearDataCompaction(Compaction* c) {
   assert(*((unsigned char*)mr_c.addr + buffer_size - 1) == 1);
   assert(*imme_data == 0);
   lck.unlock();
-
+#ifdef  MYDEBUG
+  //printf("///cp 2///\n\n");
+#endif
 //  _mm_clflush(polling_size_2);
   asm volatile ("sfence\n" : : );
   asm volatile ("lfence\n" : : );
@@ -2662,6 +2690,9 @@ void DBImpl::NearDataCompaction(Compaction* c) {
 //    delete it;
 //    assert(iter.second->creator_node_id == 1);
 //  }
+#ifdef  MYDEBUG
+  //printf("///cp 3///\n\n");
+#endif
   size_t new_file_size = edit.GetNewFilesNum();
   assert(new_file_size > 0);
   uint64_t file_number_start = versions_->NewFileNumberBatch(new_file_size);
@@ -2691,9 +2722,15 @@ void DBImpl::NearDataCompaction(Compaction* c) {
                            IBV_SEND_SIGNALED, 1, shard_target_node_id);
 
 #endif
+#ifdef  MYDEBUG
+    //printf("///cp 4///\n\n");
+#endif
     for(const auto& iter : *edit.GetDeletedFiles()){
       table_cache_->Evict(std::get<1>(iter), std::get<2>(iter));
     }
+#ifdef  MYDEBUG
+    //printf("///cp 5///\n\n");
+#endif
     for(const auto& iter : *edit.GetNewFiles()){
 //      printf("open compaciton tables2\n");
 
@@ -2701,6 +2738,9 @@ void DBImpl::NearDataCompaction(Compaction* c) {
 //      assert(it->status());
       delete it;
     }
+#ifdef  MYDEBUG
+    //printf("///cp 6///\n\n");
+#endif
     // Verify that the table is usable
     //#ifndef NDEBUG
     //      it->SeekToFirst();
@@ -2716,7 +2756,9 @@ void DBImpl::NearDataCompaction(Compaction* c) {
   rdma_mg->Deallocate_Local_RDMA_Slot(mr_c.addr,Version_edit);
 //  rdma_mg->Deallocate_Local_RDMA_Slot(recv_mr_c.addr,Version_edit);
   rdma_mg->Deallocate_Local_RDMA_Slot(receive_mr.addr,Message);
-
+#ifdef  MYDEBUG
+  //printf("///cp 7///\n\n");
+#endif
 }
 //void DBImpl::Communication_To_Home_Node() {
 //  ibv_wc wc[3] = {};
@@ -3315,7 +3357,7 @@ void DBImpl::ResetThreadLocalSuperVersions() {
 //    DEBUG("Check not Unref\n");
 //  }
 //}
-Status DBImpl::DoCompactionWorkWithSubcompaction(CompactionState* compact) {
+Status DBImpl::DoCompactionWorkWithSubcompaction(CompactionState* compact) {  
   Compaction* c = compact->compaction;
   c->GenSubcompactionBoundaries();
   auto boundaries = c->GetBoundaries();
@@ -4186,11 +4228,11 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
 #endif
   size_t kv_num = WriteBatchInternal::Count(updates);
   assert(kv_num == 1);
-  uint64_t sequence = versions_->AssignSequnceNumbers(kv_num);
+  uint64_t sequence = versions_->AssignSequnceNumbers(kv_num);//为写批次分配递增的唯一序列号-LZY
   //todo: remove
 //  kv_counter0.fetch_add(1);
   MemTable* mem;
-  Status status = PickupTableToWrite(updates == nullptr, sequence, mem);
+  Status status = PickupTableToWrite(updates == nullptr, sequence, mem);//
 #ifdef TIMEPRINT
   auto stop = std::chrono::high_resolution_clock::now();
   auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(stop - start);
@@ -4329,7 +4371,7 @@ Status DBImpl::PickupTableToWrite(bool force, uint64_t seq_num, MemTable*& mem_r
         // set the immutable as seq_num - 1
         temp_mem->SetLargestSeq(last_mem_seq + MEMTABLE_SEQ_SIZE);
         temp_mem->Ref();
-        mem_r->SetFlushState(MemTable::FLUSH_REQUESTED);
+        mem_r->SetFlushState(MemTable::FLUSH_REQUESTED);//写新memtable。为旧memtable准备flush-LZY
         mem_.store(temp_mem);
         //set the flush flag for imm
         assert(imm_.current_memtable_num() <= config::Immutable_StopWritesTrigger);

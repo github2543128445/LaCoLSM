@@ -5,7 +5,6 @@
 #include "db_impl_sharding.h"
 
 namespace TimberSaw {
-
 DBImpl_Sharding::DBImpl_Sharding(const Options& options, const std::string& dbname) {
     assert(options.ShardInfo->size() != 0);
     for (auto iter : *options.ShardInfo) {

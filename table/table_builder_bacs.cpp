@@ -560,7 +560,7 @@ Status TableBuilder_BACS::Finish() {
   Rep* r = rep_;
 //  UpdateFunctionBLock();
   if (r->offset - r->offset_last_flushed >0){
-    FlushData();
+    FlushData();//Aha REAL FLUSH -LZY
   }
 
   assert(!r->closed);

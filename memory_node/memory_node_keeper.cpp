@@ -123,6 +123,7 @@ TimberSaw::Memory_Node_Keeper::Memory_Node_Keeper(bool use_sub_compaction,
 //    message_handler_pool_.Schedule(background_work_function, background_work_arg);
 //  }
   void Memory_Node_Keeper::SetBackgroundThreads(int num, ThreadPoolType type) {
+    printf("///now Compaction %d///\n\n",num);
     Compactor_pool_.SetBackgroundThreads(num);
   }
 //  void Memory_Node_Keeper::MaybeScheduleCompaction(std::string& client_ip) {
@@ -1358,7 +1359,9 @@ Status Memory_Node_Keeper::InstallCompactionResultsToComputePreparation(
   return s;
 }
   void Memory_Node_Keeper::server_communication_thread(std::string client_ip,
-                                                 int socket_fd) {
+                                                 int socket_fd) { 
+    static int tnum = 0;
+    printf("///communication thread %d///\n",++tnum); //应该是一个分片一个，用来接收通信的 -LZY
     printf("A new shared memory thread start\n");
     printf("checkpoint-out\n");
     char temp_receive[2];
@@ -1448,10 +1451,10 @@ Status Memory_Node_Keeper::InstallCompactionResultsToComputePreparation(
     int buffer_position = 0;
     int miss_poll_counter = 0;
     printf("checkpoint5\n");
-    while (true) {
+    while (true) {//从这开始轮询等待RDMA请求 -LZY
       ++miss_poll_counter;
 //      rdma_mg->poll_completion(wc, 1, client_ip, false, compute_node_id);
-      if (rdma_mg->try_poll_completions(wc, 1, client_ip, false, compute_node_id) == 0){
+      if (rdma_mg->try_poll_completions(wc, 1, client_ip, false, compute_node_id) == 0){ //前一个工作未完成-LZY
         // exponetial back off to save cpu cycles.
         if(miss_poll_counter < 256){
           continue;
@@ -1481,10 +1484,10 @@ Status Memory_Node_Keeper::InstallCompactionResultsToComputePreparation(
         cv_temp.notify_all();
         rdma_mg->post_receive<RDMA_Request>(&recv_mr[buffer_position],
                                             compute_node_id,
-                                            "main");
+                                            "main"); //提交RDMA-receive -LZY
 
         // increase the buffer index
-        if (buffer_position == R_SIZE-1 ){
+        if (buffer_position == R_SIZE-1 ){ //循环利用
           buffer_position = 0;
         } else{
           buffer_position++;
@@ -1493,7 +1496,7 @@ Status Memory_Node_Keeper::InstallCompactionResultsToComputePreparation(
       }
       // TOFIX: memory leak for new RDMA request()
       RDMA_Request* receive_msg_buf = new RDMA_Request();
-      *receive_msg_buf = *(RDMA_Request*)recv_mr[buffer_position].addr;
+      *receive_msg_buf = *(RDMA_Request*)recv_mr[buffer_position].addr; //下面要读取Receive的内容了 -LZY
 //      memcpy(receive_msg_buf, recv_mr[buffer_position].addr, sizeof(RDMA_Request));
 
       // copy the pointer of receive buf to a new place because
@@ -1525,11 +1528,11 @@ Status Memory_Node_Keeper::InstallCompactionResultsToComputePreparation(
       } else if (receive_msg_buf->command == near_data_compaction) {
         rdma_mg->post_receive<RDMA_Request>(&recv_mr[buffer_position],
                                             compute_node_id,
-                                            client_ip);
+                                            client_ip);  //注释掉也能跑，性能指标也正常，你在接收什么？ 但RDMA的Receive多于Send好像不会导致运行逻辑上的问题-LZY
         Arg_for_handler* argforhandler = new Arg_for_handler{.request=receive_msg_buf,
                            .client_ip = client_ip,.target_node_id = compute_node_id};
         BGThreadMetadata* thread_pool_args = new BGThreadMetadata{.db = this, .func_args = argforhandler};
-        Compactor_pool_.Schedule(&Memory_Node_Keeper::RPC_Compaction_Dispatch, thread_pool_args);
+        Compactor_pool_.Schedule(&Memory_Node_Keeper::RPC_Compaction_Dispatch, thread_pool_args); //将RPC_Compaction_Dispatch函数加入Compactor的线程池
 //        sst_compaction_handler(nullptr);
       } else if (receive_msg_buf->command == create_cpu_refresher) {
         // receive a new remote cpu keeper request from compute node
@@ -2170,7 +2173,7 @@ int Memory_Node_Keeper::server_sock_connect(const char* servername, int port) {
       _mm_clflush(polling_byte);
       asm volatile ("sfence\n" : : );
       asm volatile ("lfence\n" : : );
-      asm volatile ("mfence\n" : : );
+      asm volatile ("mfence\n" : : );//这三条确保之前的存储都被刷新到内存，该加载的也已完成，保证内存的顺序性和一致性-LZY
       if (counter == 10000){
         std::fprintf(stderr, "Polling Remote Compaction content\r");
         std::fflush(stderr);
@@ -2185,7 +2188,7 @@ int Memory_Node_Keeper::server_sock_connect(const char* servername, int port) {
 
     //Decode compaction
     c.DecodeFrom(
-        Slice((char*)large_recv_mr.addr, request->content.sstCompact.buffer_size), 1);
+        Slice((char*)large_recv_mr.addr, request->content.sstCompact.buffer_size), 1);//获得Compaction所需的参数
     //printf("near data compaction at level %d, first level of file%d, second level of file %d\n", c.level(), c.num_input_files(0), c.num_input_files(1)); //LZY
 
     // Note need to check whether the code below is correct.
@@ -2195,10 +2198,10 @@ int Memory_Node_Keeper::server_sock_connect(const char* servername, int port) {
     DEBUG_arg("Compaction decoded, the first input file number is %lu \n", c.inputs_[0][0]->number);
     DEBUG_arg("Compaction decoded, input file level is %d \n", c.level());
     CompactionState* compact = new CompactionState(&c);
-    if (usesubcompaction && c.num_input_files(0)>=4 && c.num_input_files(1)>1){
+    if (usesubcompaction && c.num_input_files(0)>=4 && c.num_input_files(1)>1){ //level0 > 4 && level1 > 1
 //    if (usesubcompaction && c.num_input_files(1)>1){
 //      test_compaction_mutex.lock();
-      status = DoCompactionWorkWithSubcompaction(compact, client_ip);
+      status = DoCompactionWorkWithSubcompaction(compact, client_ip);//返回
 //      test_compaction_mutex.unlock();
       //        status = DoCompactionWork(compact, *client_ip);
     }else{
@@ -2393,7 +2396,7 @@ int Memory_Node_Keeper::server_sock_connect(const char* servername, int port) {
       asm volatile ("sfence\n" : : );
       asm volatile ("lfence\n" : : );
       asm volatile ("mfence\n" : : );
-      std::fprintf(stderr, "Polling sync option handler\n");
+      //std::fprintf(stderr, "Polling sync option handler\n"); -LZY
       std::fflush(stderr);
     }
     *opts = *static_cast<Options*>(edit_recv_mr.addr);

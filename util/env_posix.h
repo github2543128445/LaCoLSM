@@ -729,13 +729,16 @@ class PosixEnv : public Env {
   }
   void SetBackgroundThreads(int num,  ThreadPoolType type) override{
     switch (type) {
-      case FlushThreadPool:
+      case FlushThreadPool: 
         flushing.SetBackgroundThreads(num);
+        printf("///now flush Im %d///\n\n",num);
         break;
       case CompactionThreadPool:
+        printf("///now Compaction Im %d///\n\n",num);
         compaction.SetBackgroundThreads(num);
         break;
       case SubcompactionThreadPool:
+        printf("///now Subcompaction Im %d///\n\n",num);
         subcompaction.SetBackgroundThreads(num);
         break;
     }

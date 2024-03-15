@@ -949,7 +949,6 @@ class Benchmark {
       printf("start front-end threads\n");
       g_env->StartThread(ThreadBody, &arg[i]);  //std::thread new_thread(thread_main, thread_main_arg); new_thread.detach(); //下发Thread
     }
-    //LZYnext
     std::thread* t_print = nullptr;
     if (FLAGS_batchprint){
       Stats batch_stat;
@@ -1211,7 +1210,8 @@ class Benchmark {
     }
     printf("validation read finished, not found num %d\n", not_found);
   }
-  void DoWrite(ThreadState* thread, bool seq) {
+  void DoWrite(ThreadState* thread, bool seq) {//写服务器的线程各调用一次-LZY
+    static int roundw = 0;
     if (num_ != FLAGS_num) {
       char msg[100];
       std::snprintf(msg, sizeof(msg), "(%d ops)", num_);
@@ -1235,12 +1235,12 @@ class Benchmark {
 //        key.Set(k);
         GenerateKeyFromInt(k, &key);
 //        batch.Put(key.slice(), gen.Generate(value_size_));
-        batch.Put(key, gen.Generate(value_size_));
+        batch.Put(key, gen.Generate(value_size_));//放置一个KV对到写批
 //        bytes += value_size_ + key.slice().size();
         bytes += value_size_ + key.size();
         thread->stats.FinishedSingleOp();
       }
-      s = db_->Write(write_options_, &batch);
+      s = db_->Write(write_options_, &batch);//写批处理,使用的db_impl的实现-LZY
       if (!s.ok()) {
         std::fprintf(stderr, "put error: %s\n", s.ToString().c_str());
         std::exit(1);

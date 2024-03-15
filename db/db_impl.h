@@ -84,6 +84,9 @@ class DBImpl : public DB, RPC_Process {
 class DBImpl : public DB{
 #endif
  public:
+  //LZY new ↓
+  int trigger_compaction_in_level[7];
+  //LZY new ↑
   DBImpl(const Options& options, const std::string& dbname);
   DBImpl(const Options& raw_options, const std::string& dbname,
          const std::string ub, const std::string lb);
