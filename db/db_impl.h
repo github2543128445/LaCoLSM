@@ -86,6 +86,9 @@ class DBImpl : public DB{
  public:
   //LZY new ↓
   int trigger_compaction_in_level[7];
+  int trivial_move_in_level[7];
+  long long duration_time_in_level[7];
+  unsigned compaction_size_in_level[7];
   //LZY new ↑
   DBImpl(const Options& options, const std::string& dbname);
   DBImpl(const Options& raw_options, const std::string& dbname,

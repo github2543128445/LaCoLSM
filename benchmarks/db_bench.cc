@@ -912,10 +912,8 @@ class Benchmark {
   void RunBenchmark(int n, Slice name,
                     void (Benchmark::*method)(ThreadState*)) {
 //    printf("Bechmark start\n");
-    if (method == &Benchmark::WriteRandom || method == &Benchmark::WriteRandomSharded)
-      Validation_Write(); //get Validation_keys -LZY
-//    if (name.ToString() == "readrandom"){
-//    }
+    if (method == &Benchmark::WriteRandom || method == &Benchmark::WriteRandomSharded) Validation_Write(); 
+    //get Validation_keys -LZY
     SharedState shared(n); //定义了锁结构
     //TODO(chuqing): try to activate here, but failed
     ThreadArg* arg = new ThreadArg[n];
@@ -1377,7 +1375,7 @@ class Benchmark {
     std::snprintf(msg, sizeof(msg), "(%d of %d found)", found, num_);
     thread->stats.AddMessage(msg);
   }
-  void ReadRandom(ThreadState* thread) {
+  void ReadRandom(ThreadState* thread) {//LZY:要先优化读吗？继续：专注写的优化
     ReadOptions options;
     //TODO(ruihong): specify the table_cache option.
     std::string value;

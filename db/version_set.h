@@ -636,6 +636,7 @@ struct CompactionOutput {
   uint64_t number;
   uint64_t file_size;
   InternalKey smallest, largest;
+  //LZY:远程地址的对应
   std::map<uint32_t , ibv_mr*> remote_data_mrs;
   std::map<uint32_t , ibv_mr*> remote_dataindex_mrs;
   std::map<uint32_t , ibv_mr*> remote_filter_mrs;

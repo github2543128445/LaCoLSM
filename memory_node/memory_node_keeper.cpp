@@ -578,6 +578,7 @@ void Memory_Node_Keeper::CleanupCompaction(CompactionState* compact) {
 }
 Status Memory_Node_Keeper::DoCompactionWork(CompactionState* compact,
                                             std::string& client_ip) {
+  //LZY:两边还挺不一样的
 //  const uint64_t start_micros = env_->NowMicros();
   int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
 
@@ -820,6 +821,7 @@ Status Memory_Node_Keeper::DoCompactionWorkWithSubcompaction(
   for (auto& thread : thread_pool) {
     thread.join();
   }
+  //LZY:以上工作做的和计算节点做一模一样
 //  CompactionStats stats;
 ////  stats.micros = env_->NowMicros() - start_micros;
 //  for (int which = 0; which < 2; which++) {
@@ -2197,6 +2199,7 @@ int Memory_Node_Keeper::server_sock_connect(const char* servername, int port) {
     // the slice size is larger than the real size by 1 byte.
     DEBUG_arg("Compaction decoded, the first input file number is %lu \n", c.inputs_[0][0]->number);
     DEBUG_arg("Compaction decoded, input file level is %d \n", c.level());
+
     CompactionState* compact = new CompactionState(&c);
     if (usesubcompaction && c.num_input_files(0)>=4 && c.num_input_files(1)>1){ //level0 > 4 && level1 > 1
 //    if (usesubcompaction && c.num_input_files(1)>1){

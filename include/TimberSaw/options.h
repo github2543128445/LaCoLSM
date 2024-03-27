@@ -70,9 +70,9 @@ struct TimberSaw_EXPORT Options {
   // comparator provided to previous open calls on the same DB.
   const Comparator* comparator;
 
-  int max_background_flushes = 4;// 1-1 setup is 8 M-M setup is 8, fixed shard is also 8
-  int max_background_compactions = 12;//
-  int MaxSubcompaction = 12; // 1-1 setup is 12; M-M  12 as well
+  int max_background_flushes = 8;// 1-1 setup is 8 M-M setup is 8, fixed shard is also 8
+  int max_background_compactions = 24;//
+  int MaxSubcompaction = 24; // 1-1 setup is 12; M-M  12 as well
   bool usesubcompaction = true;
   // If true, the database will be created if it is missing.
   bool create_if_missing = true;
@@ -167,15 +167,15 @@ struct TimberSaw_EXPORT Options {
   // worth switching to kNoCompression.  Even if the input data is
   // incompressible, the kSnappyCompression implementation will
   // efficiently detect that and will switch to uncompressed mode.
-  CompressionType compression = kNoCompression;
-
+  CompressionType compression = kNoCompression; //LZY:继续，可能后续会看看吧
+ 
   // EXPERIMENTAL: If true, append to existing MANIFEST and log files
   // when a database is opened.  This can significantly speed up open.
   //
   // Default: currently false, but may become true later.
   bool reuse_logs = false;
 
-  bool near_data_compaction = true;
+  bool near_data_compaction = true;//LZY:不影响，开着就行
   // If non-null, use the specified filter policy to reduce disk reads.
   // Many applications will benefit from passing the result of
   // NewBloomFilterPolicy() here.

@@ -1,12 +1,16 @@
-我写的MYDEBUG 用来开启一些流程上的输出
-TABLE_STRATEGY {0块寻址，1字节寻址}
-NEARDATACOMPACTION {0 Compute Compaction，1 near-data Compaction}
+define MYDEBUG 用来开启一些流程上的输出
 define PERFECT_THREAD_NUMBER_FOR_BGTHREADS 会导致开尽可能多的核，不听你的设置
 影响Compaction（由线程池设置）158和SubCompaction（直接在option类中设置）线程的数量78
+define NDEBUG 关闭一些多余的检查（对实际性能影响不大）
 
+TABLE_STRATEGY {0块寻址，1字节寻址}
+NEARDATACOMPACTION {0 Compute Compaction，1 near-data Compaction}
+
+options.h:
+compression = kNoCompression / kSnappyCompression
 max_background_flushes {default = 4}
 max_background_compactions {default = 12} 管计算节点的配置
-server.cc: mn_keeper->SetBackgroundThreads 管内存节点的配置
+mn_keeper->SetBackgroundThreads 管内存节点的配置
 MaxSubcompaction {default = 12}
 usesubcompaction {default = true}
 

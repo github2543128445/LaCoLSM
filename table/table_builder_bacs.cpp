@@ -9,7 +9,7 @@ namespace TimberSaw {
 //TOthink: how to save the remote mr?
 //TOFIX : now we suppose the index and filter block will not over the write buffer.
 // TODO: make the Option of tablebuilder a pointer avoiding large data copying
-struct TableBuilder_BACS::Rep {
+struct TableBuilder_BACS::Rep { //!!Rep!!
   Rep(const Options& opt, IO_type type, uint8_t target_node_id)
       : options(opt),
         index_block_options(opt),
@@ -47,6 +47,8 @@ struct TableBuilder_BACS::Rep {
     local_index_mr.push_back(temp_index_mr);
     memset(temp_filter_mr->addr, 0, temp_filter_mr->length);
     local_filter_mr.push_back(temp_filter_mr);
+    //LZY:生成两个MemTable？
+
     //    delete temp_data_mr;
     //    delete temp_index_mr;
     //    delete temp_filter_mr;
@@ -61,7 +63,7 @@ struct TableBuilder_BACS::Rep {
     }
     filter_block = (opt.filter_policy == nullptr
                         ? nullptr
-                        : new FullFilterBlockBuilder(local_filter_mr[0], opt.bloom_bits));
+                        : new FullFilterBlockBuilder(local_filter_mr[0], opt.bloom_bits)); //LZY: Default 10 bits
 
     status = Status::OK();
   }
@@ -117,7 +119,7 @@ struct TableBuilder_BACS::Rep {
   std::string compressed_output;
   uint8_t target_node_id_;
 };
-TableBuilder_BACS::TableBuilder_BACS(const Options& options, IO_type type,
+TableBuilder_BACS::TableBuilder_BACS(const Options& options, IO_type type,//Only Compaction or Flush
                                      uint8_t target_node_id)
     : rep_(new Rep(options, type, target_node_id)) {
   if (rep_->filter_block != nullptr) {
@@ -556,11 +558,11 @@ void TableBuilder_BACS::FlushFilter(size_t& msg_size) {
 
 Status TableBuilder_BACS::status() const { return rep_->status; }
 
-Status TableBuilder_BACS::Finish() {
+Status TableBuilder_BACS::Finish() {//Flush 以及 Compaction结果写回的位置
   Rep* r = rep_;
 //  UpdateFunctionBLock();
   if (r->offset - r->offset_last_flushed >0){
-    FlushData();//Aha REAL FLUSH -LZY
+    FlushData();//LZY:不仅仅是FLUSH的核心，而且是Compaction结果写回的核心，在里面完成的builder的远程地址的绑定。
   }
 
   assert(!r->closed);

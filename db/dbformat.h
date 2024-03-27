@@ -50,7 +50,7 @@ static const int kL0_StopWritesTrigger = 32; // (new 16 shards is 2. Default(0 s
 // M-M still 256. ahigher number of this value can result in low write performance
 // decrease with the number of shards.
 // with 8 fixed shard per compute node this equals 256.0, 3200.0
-static const double max_mega_bytes_for_level_base = 256.0;
+static const double max_mega_bytes_for_level_base = 256.0;  //level 1是256MB ,每一层×10
 
 
 // Maximum level to which a new compacted memtable is pushed if it
@@ -59,7 +59,7 @@ static const double max_mega_bytes_for_level_base = 256.0;
 // expensive manifest file operations.  We do not push all the way to
 // the largest level since that can generate a lot of wasted disk
 // space if the same key space is being repeatedly overwritten.
-static const int kMaxMemCompactLevel = 2;
+static const int kMaxMemCompactLevel = 2; //LZY:trival move最多到2？
 
 // Approximate gap in bytes between samples of data read during iteration.
 static const int kReadBytesPeriod = 1048576;
