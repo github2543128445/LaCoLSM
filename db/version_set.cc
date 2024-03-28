@@ -609,7 +609,7 @@ bool Version::GetOverlappingInputs(int level, const InternalKey* begin,//LZY：l
       return false;
     }else{
       inputs->push_back(f);
-      if (level == 0) {
+      if (level == 0) {//LZY: 希望通过compaction去除重叠，因此每遇到一个l0文件，就试图扩大范围，这样会将重叠的l0文件都加入进inputs
         // Level-0 files may overlap each other.  So check if the newly
         // added file has expanded the range.  If so, restart search.
         //TOthink: this two if may never be triggered because the user_begin

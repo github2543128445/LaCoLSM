@@ -168,12 +168,7 @@ class MemTable {
  private:
   friend class MemTableIterator;
   friend class MemTableBackwardIterator;
-
-
-
-
-
-
+  
   std::atomic<int> refs_;
   std::atomic<size_t> seq_count = 0;
 

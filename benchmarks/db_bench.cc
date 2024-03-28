@@ -1375,7 +1375,7 @@ class Benchmark {
     std::snprintf(msg, sizeof(msg), "(%d of %d found)", found, num_);
     thread->stats.AddMessage(msg);
   }
-  void ReadRandom(ThreadState* thread) {//LZY:要先优化读吗？继续：专注写的优化
+  void ReadRandom(ThreadState* thread) {//LZY:要先优化读吗？继续：专注写的优化 -暂时搁置
     ReadOptions options;
     //TODO(ruihong): specify the table_cache option.
     std::string value;

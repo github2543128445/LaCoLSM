@@ -249,10 +249,10 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
     int available_cpu_num = numa_num_task_cpus();
     while (!rdma_mg->remote_core_number_received.load());
     env_->SetBackgroundThreads(available_cpu_num + rdma_mg->remote_core_number_map.at(shard_target_node_id),ThreadPoolType::CompactionThreadPool);
-    options_.MaxSubcompaction = available_cpu_num;
+    options_.max_compute_subcompactions = available_cpu_num;
 
 #else
-    env_->SetBackgroundThreads(options_.max_background_compactions,ThreadPoolType::CompactionThreadPool);
+    env_->SetBackgroundThreads(options_.max_compute_compactions,ThreadPoolType::CompactionThreadPool);
 
 #endif
     Unpin_bg_pool_.SetBackgroundThreads(1);
@@ -344,10 +344,10 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname,
   int available_cpu_num = numa_num_task_cpus();
   while (!rdma_mg->remote_core_number_received.load());
   env_->SetBackgroundThreads(available_cpu_num + rdma_mg->remote_core_number_map.at(shard_target_node_id),ThreadPoolType::CompactionThreadPool);
-  options_.MaxSubcompaction = available_cpu_num;
+  options_.max_compute_subcompactions = available_cpu_num;
 
 #else
-  env_->SetBackgroundThreads(options_.max_background_compactions,ThreadPoolType::CompactionThreadPool);
+  env_->SetBackgroundThreads(options_.max_compute_compactions,ThreadPoolType::CompactionThreadPool);
 
 #endif
 }
@@ -894,7 +894,7 @@ Status DBImpl::WriteLevel0Table(FlushJob* job, VersionEdit* edit) {
 //  write_stall_mutex_.AssertNotHeld();
   return s;
 }
-Status DBImpl::WriteLevel0Table(MemTable* job, VersionEdit* edit,
+Status DBImpl::WriteLevel0Table(MemTable* job, VersionEdit* edit,//LZY：无用
                                 Version* base) {
 //  undefine_mutex.AssertHeld();
   //The program should never goes here.
@@ -1036,7 +1036,7 @@ Status DBImpl::WriteLevel0Table(MemTable* job, VersionEdit* edit,
 //    RecordBackgroundError(s);
 //  }
 //}
-void DBImpl::CompactMemTable() { //LZY:
+void DBImpl::CompactMemTable() { //
 //  undefine_mutex.AssertHeld();
   //TOTHINK What will happen if we remove the mutex in the future?
 
@@ -1888,7 +1888,7 @@ void DBImpl::BackgroundCompaction(void* p) { //LZY:参数好像没用到\目前�
 //            static_cast<unsigned long long>(f->file_size),
 //            status.ToString().c_str(), versions_->LevelSummary(&tmp));
        DEBUG_arg("Trival compaction< level 0 file number is %d\n", c->num_input_files(0));
-      } else if (need_push_down) { //LZY: NearCompaction 目前忽略 
+      } else if (need_push_down) { //LZY: NearCompaction  继续：if（MN_unbusy()）
 #ifdef MYDEBUG        
         trigger_compaction_in_level[c->level()]++;
 #endif
@@ -1904,7 +1904,7 @@ void DBImpl::BackgroundCompaction(void* p) { //LZY:参数好像没用到\目前�
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
         duration_time_in_level[c->level()] += duration.count();
         compaction_size_in_level[c->level()] += (c->Total_data_size())/1024/1024;
-#ifdef CHECK_COMPACTION_TIME
+#ifdef LZYCHECK_COMPACTION_TIME
         if (c->level() == 0){       
 //        if (c->small_compaction){
           uint64_t total_size = 0;
@@ -1923,7 +1923,7 @@ void DBImpl::BackgroundCompaction(void* p) { //LZY:参数好像没用到\目前�
 //        }
 //        MaybeScheduleFlushOrCompaction();
 //        return;
-      } else { //no near-data compaction
+      } else { //no near-data compaction 
 #ifdef MYDEBUG        
         trigger_compaction_in_level[c->level()]++;
 #endif         
@@ -2151,8 +2151,8 @@ Status DBImpl::FinishCompactionOutputFile(SubcompactionState* compact,
   }
   return s;
 }
-                                          Iterator* input) {
-Status DBImpl::FinishCompactionOutputFile(CompactionState* compact,  //LZY:完成一个compact->builder，赋值相关信息给compact->compaction，自己delete
+                                          
+Status DBImpl::FinishCompactionOutputFile(CompactionState* compact, Iterator* input) { //LZY:完成一个compact->builder，赋值相关信息给compact->compaction，自己delete
   assert(compact != nullptr);
 //  assert(compact->outfile != nullptr);
   assert(compact->builder != nullptr);
@@ -3366,8 +3366,8 @@ Status DBImpl::DoCompactionWorkWithSubcompaction(CompactionState* compact) {
   auto boundaries = c->GetBoundaries();
   auto sizes = c->GetSizes();
   assert(boundaries->size() == sizes->size() - 1);
-//  int subcompaction_num = std::min((int)c->GetBoundariesNum(), config::MaxSubcompaction);
-  if (boundaries->size()<=options_.MaxSubcompaction){
+//  int subcompaction_num = std::min((int)c->GetBoundariesNum(), config::max_compute_subcompactions);
+  if (boundaries->size()<=options_.max_compute_subcompactions){
     for (size_t i = 0; i <= boundaries->size(); i++) {
       Slice* start = i == 0 ? nullptr : &(*boundaries)[i - 1];
       Slice* end = i == boundaries->size() ? nullptr : &(*boundaries)[i];
@@ -3382,8 +3382,8 @@ Status DBImpl::DoCompactionWorkWithSubcompaction(CompactionState* compact) {
         small_files.push_back(i);
     }
     int big_files_num = boundaries->size() - small_files.size();
-    int files_per_subcompaction = big_files_num/options_.MaxSubcompaction + 1;//Due to interger round down, we need add 1.
-    double mean = sum * 1.0 / options_.MaxSubcompaction;
+    int files_per_subcompaction = big_files_num/options_.max_compute_subcompactions + 1;//Due to interger round down, we need add 1.
+    double mean = sum * 1.0 / options_.max_compute_subcompactions;
     for (size_t i = 0; i <= boundaries->size(); i++) {
       size_t range_size = (*sizes)[i];
       Slice* start = i == 0 ? nullptr : &(*boundaries)[i - 1];

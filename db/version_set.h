@@ -295,6 +295,7 @@ class Version {
   // List of files per level
   std::vector<std::shared_ptr<RemoteMemTableMetaData>> levels_[config::kNumLevels];
   std::vector<std::shared_ptr<RemoteMemTableMetaData>> in_progress[config::kNumLevels];
+  int laststartL1 = 0; //LZY add
 //  double score[config::kNumLevels];
   // Next file to compact based on seek stats.
   std::shared_ptr<RemoteMemTableMetaData> file_to_compact_;

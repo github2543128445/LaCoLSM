@@ -70,9 +70,9 @@ TimberSaw::Memory_Node_Keeper::Memory_Node_Keeper(bool use_sub_compaction,
     // because the bg thread trigger the near data compaction will sleep.Acurately speaking,
     // the compute background thread number = compute core number  + memory core number
     Compactor_pool_.SetBackgroundThreads(available_cpu_num);
-    opts->MaxSubcompaction = available_cpu_num;
+    opts->max_near_data_subcompactions = available_cpu_num;
 #else
-    Compactor_pool_.SetBackgroundThreads(opts->max_background_compactions);
+    Compactor_pool_.SetBackgroundThreads(opts->max_near_data_compactions);
 #endif
     Message_handler_pool_.SetBackgroundThreads(2);
     Persistency_bg_pool_.SetBackgroundThreads(1);
@@ -576,9 +576,8 @@ void Memory_Node_Keeper::CleanupCompaction(CompactionState* compact) {
   }
   delete compact;
 }
-Status Memory_Node_Keeper::DoCompactionWork(CompactionState* compact,
-                                            std::string& client_ip) {
-  //LZY:两边还挺不一样的
+Status Memory_Node_Keeper::DoCompactionWork(CompactionState* compact,std::string& client_ip) {
+  //LZY:两边还挺不一样的,这是内存节点做Compaction
 //  const uint64_t start_micros = env_->NowMicros();
   int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
 
@@ -758,8 +757,8 @@ Status Memory_Node_Keeper::DoCompactionWorkWithSubcompaction(
   auto boundaries = c->GetBoundaries();
   auto sizes = c->GetSizes();
   assert(boundaries->size() == sizes->size() - 1);
-  //  int subcompaction_num = std::min((int)c->GetBoundariesNum(), config::MaxSubcompaction);
-  if (boundaries->size()<=opts->MaxSubcompaction){
+  //  int subcompaction_num = std::min((int)c->GetBoundariesNum(), config::max_near_data_subcompactions);
+  if (boundaries->size()<=opts->max_near_data_subcompactions){
     for (size_t i = 0; i <= boundaries->size(); i++) {
       Slice* start = i == 0 ? nullptr : &(*boundaries)[i - 1];
       Slice* end = i == boundaries->size() ? nullptr : &(*boundaries)[i];
@@ -774,8 +773,8 @@ Status Memory_Node_Keeper::DoCompactionWorkWithSubcompaction(
         small_files.push_back(i);
     }
     int big_files_num = boundaries->size() - small_files.size();
-    int files_per_subcompaction = big_files_num/opts->MaxSubcompaction + 1;//Due to interger round down, we need add 1.
-    double mean = sum * 1.0 / opts->MaxSubcompaction;
+    int files_per_subcompaction = big_files_num/opts->max_near_data_subcompactions + 1;//Due to interger round down, we need add 1.
+    double mean = sum * 1.0 / opts->max_near_data_subcompactions;
     for (size_t i = 0; i <= boundaries->size(); i++) {
       size_t range_size = (*sizes)[i];
       Slice* start = i == 0 ? nullptr : &(*boundaries)[i - 1];
@@ -1086,11 +1085,9 @@ Status Memory_Node_Keeper::OpenCompactionOutputFile(CompactionState* compact) {
   Status s = Status::OK();
   if (s.ok()) {
     if (compact->compaction->table_type == block_based){
-      compact->builder = new TableBuilder_Memoryside(
-          *opts, Compact, rdma_mg);
+      compact->builder = new TableBuilder_Memoryside(*opts, Compact, rdma_mg);
     }else{
-      compact->builder = new TableBuilder_BAMS(
-          *opts, Compact, rdma_mg);
+      compact->builder = new TableBuilder_BAMS(*opts, Compact, rdma_mg);//LZY:这个
     }
   }
 //  printf("rep_ is %p", compact->builder->get_filter_map())
@@ -2201,7 +2198,8 @@ int Memory_Node_Keeper::server_sock_connect(const char* servername, int port) {
     DEBUG_arg("Compaction decoded, input file level is %d \n", c.level());
 
     CompactionState* compact = new CompactionState(&c);
-    if (usesubcompaction && c.num_input_files(0)>=4 && c.num_input_files(1)>1){ //level0 > 4 && level1 > 1
+    //LZY change v
+    if (usesubcompaction && c.num_input_files(0)>=4 && c.num_input_files(1)>1){ //level > 4 && level1 > 1
 //    if (usesubcompaction && c.num_input_files(1)>1){
 //      test_compaction_mutex.lock();
       status = DoCompactionWorkWithSubcompaction(compact, client_ip);//返回
@@ -2210,6 +2208,7 @@ int Memory_Node_Keeper::server_sock_connect(const char* servername, int port) {
     }else{
       status = DoCompactionWork(compact, client_ip);
     }
+    //LZY change ^
     InstallCompactionResultsToComputePreparation(compact);
         //TODO:Send back the new created sstables and wait for another reply.
     std::string serilized_ve;
@@ -2407,7 +2406,7 @@ int Memory_Node_Keeper::server_sock_connect(const char* servername, int port) {
     opts->env = nullptr;
     opts->filter_policy = new InternalFilterPolicy(NewBloomFilterPolicy(opts->bloom_bits));
     opts->comparator = &internal_comparator_;
-    Compactor_pool_.SetBackgroundThreads(opts->max_background_compactions);
+    Compactor_pool_.SetBackgroundThreads(opts->max_near_data_compactions);
     printf("Option sync finished\n");
     delete request;
   }

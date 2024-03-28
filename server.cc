@@ -34,7 +34,7 @@ int main(int argc,char* argv[])
     TimberSaw::RDMA_Manager::node_id = 0;
   }
 
-  mn_keeper->SetBackgroundThreads(24, TimberSaw::ThreadPoolType::CompactionThreadPool);
+  mn_keeper->SetBackgroundThreads(mn_keeper->get_opt()->max_near_data_compactions, TimberSaw::ThreadPoolType::CompactionThreadPool);
 //  std::thread CPU_utilization_heartbeat([&](){
 //    // std::ofstream myfile;
 //    while (1){

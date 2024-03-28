@@ -143,6 +143,7 @@ class Memory_Node_Keeper {
   bool FileExists(const std::string& filename)  {
     return ::access(filename.c_str(), F_OK) == 0;
   }
+  std::shared_ptr<Options> get_opt(){return opts;}//LZY add
   static std::shared_ptr<RDMA_Manager> rdma_mg;
 //  RDMA_Manager* rdma_mg;
  private:

@@ -9,9 +9,10 @@ NEARDATACOMPACTION {0 Compute Compaction，1 near-data Compaction}
 options.h:
 compression = kNoCompression / kSnappyCompression
 max_background_flushes {default = 4}
-max_background_compactions {default = 12} 管计算节点的配置
-mn_keeper->SetBackgroundThreads 管内存节点的配置
-MaxSubcompaction {default = 12}
+max_compute_compactions {default = 12} 管计算节点的配置
+max_compute_subcompactions {default = 12}
+max_near_data_compactions = 4 管内存节点配置，new
+max_near_data_subcompactions = 4
 usesubcompaction {default = true}
 
 Immutable_StopWritesTrigger {default = 15}
