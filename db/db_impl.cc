@@ -362,6 +362,7 @@ DBImpl::~DBImpl() {
     printf("///level %d has %d compactions and %d trival move\n\tcompaction keeps %lld s, with %u MB///\n",
       i,trigger_compaction_in_level[i],trivial_move_in_level[i],duration_time_in_level[i],compaction_size_in_level[i]);
   }
+  printf("///test adaptive: %d Memory Compaction, %d Compute Compaction\n",memory_compaction,compute_compaction);
 #endif  
 //LZY add ↑
   printf("DBImpl deallocated\n");
@@ -1891,6 +1892,7 @@ void DBImpl::BackgroundCompaction(void* p) { //LZY:参数好像没用到\目前�
       } else if (need_push_down) { //LZY: NearCompaction  继续：if（MN_unbusy()）
 #ifdef MYDEBUG        
         trigger_compaction_in_level[c->level()]++;
+        memory_compaction++;
 #endif
        // try to let the CPU print the average CPU utilizaiton when compaciotn is triggered.
 //       if (!compaction_start){
@@ -1926,6 +1928,7 @@ void DBImpl::BackgroundCompaction(void* p) { //LZY:参数好像没用到\目前�
       } else { //no near-data compaction 
 #ifdef MYDEBUG        
         trigger_compaction_in_level[c->level()]++;
+        compute_compaction++;
 #endif         
         auto start = std::chrono::high_resolution_clock::now();
 
