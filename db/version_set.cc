@@ -599,6 +599,7 @@ bool Version::GetOverlappingInputs(int level, const InternalKey* begin,//LZY：l
   const Comparator* user_cmp = vset_->icmp_.user_comparator();
   for (size_t i = 0; i < levels_[level].size();) {
     std::shared_ptr<RemoteMemTableMetaData> f = levels_[level][i++];
+    //printf("///now level = %d,i = %d, the file shows level = %d,number = %d///\n",level,i,f->level,f->number);
     const Slice file_start = f->smallest.user_key();
     const Slice file_limit = f->largest.user_key();
     if (begin != nullptr && user_cmp->Compare(file_limit, user_begin) < 0) {
@@ -692,7 +693,7 @@ class VersionSet::Builder {
   typedef std::set<std::shared_ptr<RemoteMemTableMetaData>, BySmallestKey> FileSet;
   struct LevelState {
     std::multimap<uint64_t, uint8_t> deleted_files;
-    FileSet* added_files;
+    FileSet* added_files; //  typedef std::set<std::shared_ptr<RemoteMemTableMetaData>, BySmallestKey> FileSet;
   };
 
   VersionSet* vset_;
@@ -737,7 +738,7 @@ class VersionSet::Builder {
 
   // Apply all of the edits in *edit to the current state.
   //TODO(ruihong): change it back to no current validation.
-  void Apply(VersionEdit* edit, Version* current) {
+  void Apply(VersionEdit* edit, Version* current) {//LZY:将新添加的文件最终 levels_[level].added_files->insert(f);
     assert(current = base_);
     // Update compaction pointers
     for (size_t i = 0; i < edit->compact_pointers_.size(); i++) {
@@ -763,7 +764,7 @@ class VersionSet::Builder {
 
       assert(level == f->level);
       assert(f.get()!= nullptr);
-//      f->refs = 1;
+      //      f->refs = 1;
 
       // We arrange to automatically compact this file after
       // a certain number of seeks.  Let's assume:
@@ -778,7 +779,7 @@ class VersionSet::Builder {
       // same as the compaction of 40KB of data.  We are a little
       // conservative and allow approximately one seek for every 16KB
       // of data before triggering a compaction.
-      f->allowed_seeks = static_cast<int>((f->file_size / 16384U));
+      f->allowed_seeks = static_cast<int>((f->file_size / 16384U));//LZY: x*16KB
       if (f->allowed_seeks < 100) f->allowed_seeks = 100;
       //Tothink: Why we have delete file here
       if (levels_[level].deleted_files.find(f->number)!= levels_[level].deleted_files.end()){
@@ -793,12 +794,12 @@ class VersionSet::Builder {
       levels_[level].added_files->insert(f);
       //TODO: Why deleted file will be be remove from deletedfiles if it exist in added file
 
-//      printf("Apply2: level 1 deleted file size %lu\n", levels_[1].deleted_files.size());
+  //      printf("Apply2: level 1 deleted file size %lu\n", levels_[1].deleted_files.size());
     }
   }
 
   // Save the current state in *v.
-  void SaveTo(Version* v) {
+  void SaveTo(Version* v) {//LZY:将VersionSet->中的added_files和base_->levels_中的文件整合添加到v，无论是L0还是其他，都是按照排序后的添加的
 //    printf("SaveTo: level 1 deleted file size %lu\n", levels_[1].deleted_files.size());
     BySmallestKey cmp;
     cmp.internal_comparator = &vset_->icmp_;
@@ -1026,7 +1027,7 @@ void VersionSet::Persistency_unpin(uint64_t* array, size_t size){
   }
 }
 #endif
-Status VersionSet::LogAndApply(VersionEdit* edit) {
+Status VersionSet::LogAndApply(VersionEdit* edit) {//LZY:生成新的Version
 //  if (edit->has_log_number_) {
 //    assert(edit->log_number_ >= log_number_);
 //    assert(edit->log_number_ < next_file_number_.load());
@@ -1093,13 +1094,13 @@ Status VersionSet::LogAndApply(VersionEdit* edit) {
     Builder builder(this, current_.load());
     // apply to the new version, no need to apply delete files, only add
     // alive files and new files to the new version just created
-    builder.Apply(edit, current_.load());
-    builder.SaveTo(v);
+    builder.Apply(edit, current_.load());//LZY:将新添加的文件最终 builder.levels_[level].added_files->insert(f);
+    builder.SaveTo(v);//LZY:将VersionSet->中的added_files和base_->levels_中的文件整合添加到v，无论是L0还是其他，都是按照排序后的添加的
   }
 //  if (edit->compactlevel() +1 > top_level){
 //    top_level = edit->compactlevel() +1;
 //  }
-  Finalize(v);
+  Finalize(v);//LZY:计算新Compaction//  在这是不是不太好，感觉会存在重复调用的问题 ：删了会段错误
 
   // Initialize new descriptor log file if necessary by creating
   // a temporary file that contains a snapshot of the current version.
@@ -1705,100 +1706,194 @@ Iterator* VersionSet::MakeInputIteratorMemoryServer(Compaction* c) {
 //  return sst->UnderCompaction;
 //}
 // TODO: Implement the file picking up for those file who exceed their peeking limit.
+bool VersionSet::PickLevel0FilePlanA(int level, Compaction* c, Version* current_snap){
+  // if there is pending compaction, skip level 0
+  if (current_snap->in_progress[level].size()>0){//LZY:有工作就先处理
+//      assert(current_->levels_[level][0]->UnderCompaction);
+    return false;
+  }
+  //Directly pickup all the pending table in level 0
+  c->inputs_[0] = current_snap->levels_[level];//LZY: Level 0的Compaction会选取所有文件而非部分
+  InternalKey smallest, largest;
+  GetRange(c->inputs_[0], &smallest, &largest);
+  // Note that the next call will discard the file we placed in
+  // c->inputs_[0] earlier and replace it with an overlapping set
+  // which will include the picked file.
+  assert(!c->inputs_[0].empty());
+  if(current_snap->GetOverlappingInputs(level+1, &smallest, &largest, &c->inputs_[1])){//找到level+1中与Range重叠的，放在inputs_[1]中-LZY
+    //Mark all the files as undercompaction
+    for (auto iter : c->inputs_[0]) {
+      iter->UnderCompaction = true;
+    }
+    current_snap->in_progress[level].insert(current_snap->in_progress[level].end(),
+                                        c->inputs_[0].begin(), c->inputs_[0].end());
+    for (auto iter : c->inputs_[1]) {
+      iter->UnderCompaction = true;
+    }
+    current_snap->in_progress[level+1].insert(current_snap->in_progress[level+1].end(),
+                                          c->inputs_[1].begin(), c->inputs_[1].end());
+//      return true;
+  }else{
+    // clear the input for this level and return.
+    c->inputs_[0].clear();
+    c->inputs_[1].clear();
+//      return false;
+  }
+  return !c->inputs_[0].empty();
+}
+bool VersionSet::PickLevel0FilePlanB(int level, Compaction* c, Version* current_snap){
+  if (current_snap->in_progress[level].size()>0){//LZY:有工作就先处理
+//      assert(current_->levels_[level][0]->UnderCompaction);
+    return false;
+  }
+  size_t l1size = current_snap->levels_[level+1].size();
+  if(l1size == 0) return PickLevel0FilePlanA(level, c,current_snap);
+  size_t rand_index = std::rand()%l1size;
+  InternalKey smallest, largest;
+  auto user_cmp = icmp_.user_comparator();
+  int counter = 0;
+  while(1){
+    std::shared_ptr<RemoteMemTableMetaData> f = current_snap->levels_[level+1][rand_index];
+    if(!f->UnderCompaction){
+      c->inputs_[1].push_back(f);
+      bool badchoice = false;  
+      int newoneoff = 1;
+      while(1){//根据当前的l1,选l0，再根据新加的l0，选l1,直到没有新的加入
+        bool endsearch = false;
+        size_t cur_i0_size = c->inputs_[0].size();
+        size_t cur_i1_size = c->inputs_[1].size();
+        GetRange(c->inputs_[1], &smallest, &largest);
+        if (!c->inputs_[0].empty())  c->inputs_[0].clear();
+        if(current_snap->GetOverlappingInputs(level, &smallest, &largest, &c->inputs_[0])){
+          if(c->inputs_[0].size()==0) return PickLevel0FilePlanA(level, c,current_snap);//无重叠，用老方法
+          if(c->inputs_[0].size()<=cur_i0_size) endsearch=true;
+        }
+        else{//与进行中的任务重叠
+          badchoice = true;
+          break;
+        }
+        if(!endsearch){
+          GetRange(c->inputs_[0], &smallest, &largest);
+          if (!c->inputs_[1].empty())  c->inputs_[1].clear();
+          if(current_snap->GetOverlappingInputs(level+1, &smallest, &largest, &c->inputs_[1])){
+            if(c->inputs_[1].size()<=cur_i1_size) endsearch=true;
+          }
+          else{//与进行中的任务重叠
+            badchoice = true;
+            break;
+          }
+        }
+        int quit_out = false;
+        if(endsearch){//没有新元素进入了
+          if(c->inputs_[1].size()>=2){//达标。（可设定的阈值
+            break;
+          }
+          else if(newoneoff<l1size){  
+            int next_index = rand_index+newoneoff < l1size ? rand_index+newoneoff : rand_index+newoneoff-l1size;
+            while(1){
+              std::shared_ptr<RemoteMemTableMetaData> newone = current_snap->levels_[level+1][next_index];
+              bool alreadyin = false;
+              for(size_t i=0;i<c->inputs_[1].size();i++){
+                std::shared_ptr<RemoteMemTableMetaData> temp = c->inputs_[1][i];
+                if(temp->number == newone->number){
+                  alreadyin==true;
+                  break;
+                }
+              }
+              newoneoff++;
+              if(!alreadyin){
+                c->inputs_[1].push_back(newone);
+                break;
+              }
+              else{
+                next_index = next_index + 1 < l1size ? next_index + 1 : 0;
+                if(next_index == rand_index){
+                  quit_out==true;
+                  break;
+                }
+              }
+            } //找L1的新元素
+          } //about 没达标
+          else{//没达标，且L1没东西可找
+            break;
+          }
+        }//about end search
+        if(quit_out) break;
+      }//直到任务量达标，或者可用的file已全选
+      if(!badchoice){
+        for (auto iter : c->inputs_[0])   iter->UnderCompaction = true;
+        current_snap->in_progress[level].insert(current_snap->in_progress[level].end(),c->inputs_[0].begin(), c->inputs_[0].end());
+        for (auto iter : c->inputs_[1])  iter->UnderCompaction = true;
+        current_snap->in_progress[level+1].insert(current_snap->in_progress[level+1].end(),c->inputs_[1].begin(), c->inputs_[1].end());
+
+        //printf("///level 0 has %d files, choose %d files///\n",current_snap->levels_[0].size(),c->inputs_[0].size());
+        break;     
+      }
+      else{ //f's task under Compaction
+        if (!c->inputs_[0].empty())  c->inputs_[0].clear();
+        if (!c->inputs_[1].empty())  c->inputs_[1].clear();
+      }
+    }
+    else{ //f under Compaction
+      if (!c->inputs_[0].empty())  c->inputs_[0].clear();
+      if (!c->inputs_[1].empty())  c->inputs_[1].clear();
+    }
+    rand_index = rand_index + 1 < l1size ? rand_index + 1 : 0;
+
+    if (++counter == l1size){
+      break;//LZY：从一个随机位置开始遍历level 1+，若有UnderCompaction的就清空之前的，否则一点点加
+    } 
+  }
+  return !c->inputs_[0].empty();
+}
 bool VersionSet::PickFileToCompact(int level, Compaction* c,  //LZY:得到需要进行Compaction的file放入current_snap->in_progress[]
                                    Version* current_snap) {//level 0全放，level 1+随机选
-  assert(c->inputs_[0].empty());
-  assert(c->inputs_[1].empty());
-  if (level==0){
-    // if there is pending compaction, skip level 0
-    if (current_snap->in_progress[level].size()>0){//LZY:有工作就先处理
-//      assert(current_->levels_[level][0]->UnderCompaction);
-      return false;
-    }
-    //Directly pickup all the pending table in level 0
-    c->inputs_[0] = current_snap->levels_[level];//LZY: Level 0的Compaction会选取所有文件而非部分
-    InternalKey smallest, largest;
-    GetRange(c->inputs_[0], &smallest, &largest);
-    // Note that the next call will discard the file we placed in
-    // c->inputs_[0] earlier and replace it with an overlapping set
-    // which will include the picked file.
-    assert(!c->inputs_[0].empty());
-    if(current_snap->GetOverlappingInputs(level+1, &smallest, &largest, &c->inputs_[1])){//找到level+1中与Range重叠的，放在inputs_[1]中-LZY
-      //Mark all the files as undercompaction
-      for (auto iter : c->inputs_[0]) {
-        iter->UnderCompaction = true;
-      }
-      current_snap->in_progress[level].insert(current_snap->in_progress[level].end(),
-                                          c->inputs_[0].begin(), c->inputs_[0].end());
-      for (auto iter : c->inputs_[1]) {
-        iter->UnderCompaction = true;
-      }
-      current_snap->in_progress[level+1].insert(current_snap->in_progress[level+1].end(),
-                                           c->inputs_[1].begin(), c->inputs_[1].end());
-//      return true;
-    }else{
-      // clear the input for this level and return.
-      c->inputs_[0].clear();
-      c->inputs_[1].clear();
-//      return false;
-    }
-  }else {//LZY：非level0层
+  //assert(c->inputs_[0].empty());
+  //assert(c->inputs_[1].empty());
+  if(level == 0){
+    return PickLevel0FilePlanA(level,c, current_snap);//继续，他妈的，根本没法分，选所有level0层是因为确实所有level0都会重叠，日他娘
+  }
+  else {//LZY：非level0层
     size_t current_level_size = current_snap->levels_[level].size();
     size_t random_index = std::rand() % current_level_size;
     InternalKey smallest, largest;
     auto user_cmp = icmp_.user_comparator();
     int counter = 0;
     while (1) {
-      std::shared_ptr<RemoteMemTableMetaData> f =
-          current_snap->levels_[level][random_index];//随机选
-
+      std::shared_ptr<RemoteMemTableMetaData> f = current_snap->levels_[level][random_index];//随机选
       if (!f->UnderCompaction) {
         // if this file is not under compaction, insert it to the input list.
         c->inputs_[0].push_back(f);
-        if (random_index != current_level_size - 1){//LZY:如果不是最后一个
-          std::shared_ptr<RemoteMemTableMetaData> next_f = current_snap->levels_[level][random_index + 1];
-          // need to check whether next file share the same key with this file, if yes
-          // we have to add the next file. because the upper level can not have newer update
-          // than lower level
-          //TOTHink: Is the file sequence in vector sorted by the largest / smallest key?
-          assert(user_cmp->Compare(next_f->largest.user_key(), f->largest.user_key()) > 0);
-          if(user_cmp->Compare(next_f->smallest.user_key(), f->largest.user_key()) == 0){
-            //LZY：尽管level 1+是有序的，但是相邻的SST存在重叠情况，这种情况下就要加上下一个。
-            //不需要传递
+        //LZY change  原来这里有判断后一个是否重叠并添加的操作，经测试，不会发生，所以删除
+        //LZY add 私以为level 1的Compaction也很重要，为了提高并行性，选取多个文件
+        if(level == 1){
+          int cnt = 1;
+          while (random_index + cnt < current_level_size && cnt < 2){//可调节参数，代表input i的数量
+            std::shared_ptr<RemoteMemTableMetaData> next_f = current_snap->levels_[level][random_index + cnt];
             c->inputs_[0].push_back(next_f);
+            cnt++;
           }
-        }
-
+        }       
         GetRange(c->inputs_[0], &smallest, &largest);
         // find file for level n+1
-        if(current_snap->GetOverlappingInputs(level + 1, &smallest, &largest,
-                                       &c->inputs_[1])){
+        if(current_snap->GetOverlappingInputs(level + 1, &smallest, &largest,&c->inputs_[1])){
           //Mark all the files as undercompaction
-          for (auto iter : c->inputs_[0]) {
-            iter->UnderCompaction = true;
-          }
-          current_snap->in_progress[level].insert(current_snap->in_progress[level].end(),
-                                              c->inputs_[0].begin(), c->inputs_[0].end());
-          for (auto iter : c->inputs_[1]) {
-            iter->UnderCompaction = true;
-          }
-          current_snap->in_progress[level+1].insert(current_snap->in_progress[level+1].end(),
-                                                c->inputs_[1].begin(), c->inputs_[1].end());
+          for (auto iter : c->inputs_[0]) iter->UnderCompaction = true;
+          current_snap->in_progress[level].insert(current_snap->in_progress[level].end(),c->inputs_[0].begin(), c->inputs_[0].end());
+          for (auto iter : c->inputs_[1]) iter->UnderCompaction = true;
+          current_snap->in_progress[level+1].insert(current_snap->in_progress[level+1].end(),c->inputs_[1].begin(), c->inputs_[1].end());
           break;
         }else{//level n+1存在UnderCompaction的文件就会返回false。
         //原则上优先更深的，但是又要保护最浅的level0，这与上面防止饿死level0呼应
           // if level n+1 under compaction clear the files
-          c->inputs_[0].clear();
-          c->inputs_[1].clear();
+          if (!c->inputs_[0].empty()) c->inputs_[0].clear();
+          if (!c->inputs_[1].empty()) c->inputs_[1].clear();
         }
       } else { //f->UnderCompaction == true
         // Optional: if this file is under compaction then empty the input vector.
-        if (!c->inputs_[0].empty()) {
-          c->inputs_[0].clear();
-        }//LZY:本来是清空两次inputs_0莫名其妙的
-        if (!c->inputs_[1].empty()) {
-          c->inputs_[1].clear();
-        }
+        if (!c->inputs_[0].empty()) c->inputs_[0].clear();
+        //LZY:本来是清空两次inputs_0莫名其妙的
+        if (!c->inputs_[1].empty()) c->inputs_[1].clear();
       }
       // Tothink: here we do not check the size of the inputs[0], we will avoid
       //  creating small files during the compaction.
@@ -1811,16 +1906,15 @@ bool VersionSet::PickFileToCompact(int level, Compaction* c,  //LZY:得到需要
 //          c->inputs_[0].clear();
 //        }
 //      }
-      random_index =
-          random_index + 1 < current_level_size ? random_index + 1 : 0;
-      if (++counter == current_level_size) break;//LZY：从一个随机位置开始遍历level 1+，若有UnderCompaction的就清空之前的，否则一点点加
+      random_index = random_index + 1 < current_level_size ? random_index + 1 : 0;
+      if (++counter == current_level_size) break;//LZY：从一个随机位置开始遍历level 1+，若有UnderCompaction的就清空之前的，否则就接收
     }
   }
 
   return !c->inputs_[0].empty();
 
 }
-Compaction* VersionSet::PickCompaction(std::mutex* sv_mtx_within_function) {   //找到需要Compaction的层和SST
+Compaction* VersionSet::PickCompaction(std::mutex* sv_mtx_within_function) {   //找到需要Compaction的层和SST,存到c里return
 
   Compaction* c;
   int level = 0;
@@ -1873,7 +1967,7 @@ Compaction* VersionSet::PickCompaction(std::mutex* sv_mtx_within_function) {   /
     c->input_version_ = current_snap;   //c->input_只是临时的，c->input_version_->in_progress才真正存
     c->input_version_->Ref(2);
     //Recalculate the scores so that next time pick from a different level.
-    Finalize(current_snap); //每次做完Comapction就进行计算，为下次做准备-LZY
+    Finalize(current_snap); //Comapction后准备下次-LZY
 //    if (c->inputs_[1].size() == 1){
 //      printf("mark here, first level file number is %lu\n", c->inputs_[1][0]->number);
 //    }

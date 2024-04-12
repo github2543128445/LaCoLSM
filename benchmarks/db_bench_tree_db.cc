@@ -498,7 +498,7 @@ int main(int argc, char** argv) {
                (n == 0 || n == 1)) {
       FLAGS_histogram = n;
     } else if (sscanf(argv[i], "--num=%d%c", &n, &junk) == 1) {
-      FLAGS_num = n;
+      FLAGS_num = n//各线程数据量
     } else if (sscanf(argv[i], "--reads=%d%c", &n, &junk) == 1) {
       FLAGS_reads = n;
     } else if (sscanf(argv[i], "--value_size=%d%c", &n, &junk) == 1) {

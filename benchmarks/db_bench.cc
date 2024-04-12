@@ -716,7 +716,7 @@ class Benchmark {
 
     const char* benchmarks = FLAGS_benchmarks;
 //    Validation_Write();
-    while (benchmarks != nullptr) {
+    while (benchmarks != nullptr) { //会单独跑两个测试
 
       const char* sep = strchr(benchmarks, ',');
       Slice name;
@@ -844,7 +844,7 @@ class Benchmark {
         }
 #endif
         DEBUG("The benchmark start.\n");
-        RunBenchmark(num_threads, name, method);
+        RunBenchmark(num_threads, name, method);//继续，看两个测试具体在哪里写死合适
         DEBUG("Benchmark finished\n");
 
       }
@@ -1791,7 +1791,7 @@ int main(int argc, char** argv) {
                (n == 0 || n == 1)) {
       FLAGS_reuse_logs = n;
     } else if (sscanf(argv[i], "--num=%d%c", &n, &junk) == 1) {
-      FLAGS_num = n;
+      FLAGS_num = n;//各线程操作数
     } else if (sscanf(argv[i], "--reads=%d%c", &n, &junk) == 1) {
       FLAGS_reads = n;
     } else if (sscanf(argv[i], "--loads=%d%c", &n, &junk) == 1) {
@@ -1799,7 +1799,7 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--load_vs_num=%d%c", &n, &junk) == 1) {
       FLAGS_load_vs_num = n;
     } else if (sscanf(argv[i], "--threads=%d%c", &n, &junk) == 1) {
-      FLAGS_threads = n;
+      FLAGS_threads = n;//线程数
     } else if (sscanf(argv[i], "--value_size=%d%c", &n, &junk) == 1) {
       FLAGS_value_size = n;
     } else if (sscanf(argv[i], "--key_size=%d%c", &n, &junk) == 1) {

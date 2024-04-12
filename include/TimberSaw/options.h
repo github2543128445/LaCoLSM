@@ -69,12 +69,18 @@ struct TimberSaw_EXPORT Options {
   // here has the same name and orders keys *exactly* the same as the
   // comparator provided to previous open calls on the same DB.
   const Comparator* comparator;
-
   int max_background_flushes = 4;// 1-1 setup is 8 M-M setup is 8, fixed shard is also 8
-  int max_compute_compactions = 12;//
-  int max_compute_subcompactions = 12; // 1-1 setup is 12; M-M  12 as well
+
+  int min_compute_compactions = 4;
+  int now_compute_compactions = 12;//
+  int max_compute_compactions = 16;//
+
+  int max_compute_subcompactions = 8; // 1-1 setup is 12; M-M  12 as well
+  
+
   int max_near_data_compactions = 4;
   int max_near_data_subcompactions = 4; 
+
   bool usesubcompaction = true;
   // If true, the database will be created if it is missing.
   bool create_if_missing = true;

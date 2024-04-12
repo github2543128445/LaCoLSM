@@ -39,6 +39,7 @@
 #include "util/coding.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
+#include "version_set.h"
 
 namespace TimberSaw {
 
@@ -195,6 +196,8 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
 #endif
 {
   for(int i=0;i<7;i++) trigger_compaction_in_level[i]=trivial_move_in_level[i]= 0,duration_time_in_level[i]=0,compaction_size_in_level[i]=0;
+  //for(int i=0;i<=32;i++) sum_time[i] = 0.0,sum_time_div[i] = 0;
+  for(int i=0;i<=32;i++) compaction_speed[i] = 0.0,compaction_speed_div[i] = 0;
   printf("DBImpl start\n");
 #ifdef WITHPERSISTENCE
   env_->rdma_mg->Set_DB_handler(this);
@@ -252,7 +255,7 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
     options_.max_compute_subcompactions = available_cpu_num;
 
 #else
-    env_->SetBackgroundThreads(options_.max_compute_compactions,ThreadPoolType::CompactionThreadPool);
+    env_->SetBackgroundThreads(options_.now_compute_compactions,ThreadPoolType::CompactionThreadPool);
 
 #endif
     Unpin_bg_pool_.SetBackgroundThreads(1);
@@ -328,6 +331,8 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname,
       shard_target_node_id(0)
 {
   for(int i=0;i<7;i++) trigger_compaction_in_level[i]=trivial_move_in_level[i]= 0,duration_time_in_level[i]=0,compaction_size_in_level[i]=0;
+  //for(int i=0;i<=32;i++) sum_time[i] = 0.0,sum_time_div[i] = 0;
+  for(int i=0;i<=32;i++) compaction_speed[i] = 0.0,compaction_speed_div[i] = 0;
   std::shared_ptr<RDMA_Manager> rdma_mg = env_->rdma_mg;
   while(rdma_mg->RPC_handler_thread_ready_num.load() != rdma_mg->memory_nodes.size());
 
@@ -347,7 +352,7 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname,
   options_.max_compute_subcompactions = available_cpu_num;
 
 #else
-  env_->SetBackgroundThreads(options_.max_compute_compactions,ThreadPoolType::CompactionThreadPool);
+  env_->SetBackgroundThreads(options_.now_compute_compactions,ThreadPoolType::CompactionThreadPool);
 
 #endif
 }
@@ -358,11 +363,29 @@ DBImpl::~DBImpl() {
 //LZY add ↓
 #ifdef MYDEBUG
   for(int i=0;i<=5;i++){
-    duration_time_in_level[i] = duration_time_in_level[i]/1000000;
+    duration_time_in_level[i] = duration_time_in_level[i]/1000;
     printf("///level %d has %d compactions and %d trival move\n\tcompaction keeps %lld s, with %u MB///\n",
       i,trigger_compaction_in_level[i],trivial_move_in_level[i],duration_time_in_level[i],compaction_size_in_level[i]);
   }
-  printf("///test adaptive: %d Memory Compaction, %d Compute Compaction\n",memory_compaction,compute_compaction);
+  printf("///test adaptive: %d Compute Compaction, %d Memory Compaction///\n",compute_compaction,memory_compaction);
+  printf("///CN av-utilization = %lf, MN av-utilization = %lf///\n",CN_utilization/CN_utilization_div,MN_utilization/MN_utilization_div);
+#endif
+
+#ifdef CHECK_INSERT_LAT  
+  if(!insert_lat.empty()){
+    std::sort(insert_lat.begin(),insert_lat.end());
+    int p50 = insert_lat[insert_lat.size()*0.5];
+    int p90 = insert_lat[insert_lat.size()*0.9];
+    int p99 = insert_lat[insert_lat.size()*0.99];
+    int p999 = insert_lat[insert_lat.size()*0.999];
+    printf("///insert latancy:P50 = %d,P90 = %d,P99 = %d,P999 = %d///\n",p50,p90,p99,p999);
+  }
+#endif
+
+#ifdef CHECK_COMPACTION_TIME  
+  // for(int i=0;i<=32;i++){
+  //   printf("///when less than %d.5 avaliable core, speed %lf MB/s ///\n",i,1000.0*compaction_speed_div[i]/compaction_speed[i]);
+  // }
 #endif  
 //LZY add ↑
   printf("DBImpl deallocated\n");
@@ -1541,176 +1564,182 @@ long double DBImpl::RequestRemoteUtilization(){
 
   return mn_percent;
 }
+void DBImpl::AddCompactionThread(){
+  if(options_.now_compute_compactions == options_.max_compute_compactions) return;
+  if(options_.now_compute_compactions >= options_.max_compute_compactions/2) options_.now_compute_compactions += 2;
+  else options_.now_compute_compactions *= 2;
 
+  if(options_.now_compute_compactions > options_.max_compute_compactions) options_.now_compute_compactions = options_.max_compute_compactions;
+  env_->SetBackgroundThreads(options_.now_compute_compactions,ThreadPoolType::CompactionThreadPool);
+  return;
+}
+void DBImpl::SubCompactionThread(){
+  if(options_.now_compute_compactions == options_.min_compute_compactions) return;
+  options_.now_compute_compactions /= 2;
+
+  if(options_.now_compute_compactions < options_.min_compute_compactions) options_.now_compute_compactions = options_.min_compute_compactions;
+  env_->SetBackgroundThreads(options_.now_compute_compactions,ThreadPoolType::CompactionThreadPool);
+  return;
+}
 bool DBImpl::CheckWhetherPushDownorNot(Compaction* compact) {
 #if NEARDATACOMPACTION==2
   // Decide whether pushdown, now we get the mn_perecnt by heartbeat
-  //TODO(chuqing): also decide by number of cores?
-  
-  // std::shared_ptr<RDMA_Manager> rdma_mg = env_->rdma_mg;
-  // long double cn_percent = rdma_mg->rpter.getCurrentValue();
-
-  // long double mn_percent = RequestRemoteUtilization();
-//  long double mn_percent = this->server_cpu_percent;
-  retry:
   auto rdma_mg = env_->rdma_mg;
-//  double mn_percent = rdma_mg->server_cpu_percent.at(shard_target_node_id)->load();
-  //TODO(chuqing): need to fix the heartbeat implementation
-
-  // std::fprintf(stdout, "Remote CPU utilization: %Lf \n", mn_percent);
+  retry:
   double task_parallelism = compact->num_input_files(1);
-
-
   // core number * CPU utilization percentage which represented the available cores estimated.
+  //基于对节点稳定性的要求，不以最大核数作为判断依据，而以设定的最大线程数作为“虚拟核”
+  double virtual_local_core = options_.max_background_flushes+options_.max_compute_compactions+options_.max_compute_subcompactions*options_.max_compute_compactions*0.035+1;
+  virtual_local_core = (double)rdma_mg->local_compute_core_number;
+  double virtual_remote_core = 1.0+options_.max_near_data_compactions+options_.max_near_data_subcompactions*options_.max_near_data_compactions*0.035+1; 
+  //1总控线程（分片）+ Compaction线程 + Comaction线程数*最大SubCompaction线程*频率（经过实验测试）+1冗余量
+  //但是SubCompaction小而致命，通过开关SubCompaction就能看出来，因此给一个冗余量
+  if(virtual_remote_core >= (double)rdma_mg->remote_core_number_map.at(shard_target_node_id)/2) virtual_remote_core = (double)rdma_mg->remote_core_number_map.at(shard_target_node_id);
+  //若少于一半，则认为是用户有意限制线程数，就采用虚拟核
   double LocalCPU_utilization = rdma_mg->local_cpu_percent.load();
+  //CN_utilization += LocalCPU_utilization;
+  //CN_utilization_div++;
+  LocalCPU_utilization *= (double)rdma_mg->local_compute_core_number/virtual_local_core;
+  double RemoteCPU_utilization= rdma_mg->server_cpu_percent.at(shard_target_node_id)->load();
+  //MN_utilization += RemoteCPU_utilization;
+  //MN_utilization_div++;
+  RemoteCPU_utilization *= (double)rdma_mg->remote_core_number_map.at(shard_target_node_id)/virtual_remote_core;  
 
-  double  RemoteCPU_utilization= rdma_mg->server_cpu_percent.at(shard_target_node_id)->load();
+
+  //LZY:按照设定的最大线程数进行转化，来判断内存节点忙碌程度
+
   // represent dynamically available core number.
-
   // sometimes LocalCPU_utilization will be larger than 100. If so, making dynamic_compute_available_core as 0;
-  double dynamic_compute_available_core = (LocalCPU_utilization > 100.0 ? 0:(100.0 - LocalCPU_utilization)) *
-                                            rdma_mg->local_compute_core_number/100.0;
-  double dynamic_remote_available_core = rdma_mg->remote_core_number_map.at(shard_target_node_id) *
+  double dynamic_compute_available_core =  virtual_local_core*
+                                            (LocalCPU_utilization > 100.0 ? 0:(100.0 - LocalCPU_utilization))/100.0;
+  double dynamic_remote_available_core = virtual_remote_core * 
                                                  (RemoteCPU_utilization > 100.0 ? 0 : (100.0-RemoteCPU_utilization))/100.0;
-  //  printf("task parallelism is %f, dynamic_compute_available_core is %f, dynamic_remote_available_core is %f\n",
-//         task_parallelism, dynamic_compute_available_core,dynamic_remote_available_core);
-  //TODO(chuqing): may need to be improved
-  if (compact->level() == 0){
-    double static_compute_achievable_parallelism = (rdma_mg->local_compute_core_number >  task_parallelism? task_parallelism: rdma_mg->local_compute_core_number);
-    double static_memory_achievable_parallelism = (rdma_mg->remote_core_number_map.at(shard_target_node_id) >  task_parallelism? task_parallelism: rdma_mg->remote_core_number_map.at(shard_target_node_id));
-    //TODO (ruihong): Always pushing down level 0 compaction may not be a good choice. T
-    // The strategy should be depends on the relationship between remote CPU number
-    // and the maximum subcompaction the level 0 compaction can provide.
-    // E.g. If a level 0 compaction can be divided into 10 subcompaction conducting by 10 cores, but
-    // the remote server only contains 1 core. Then doing the level 0 compaction in compute
-    // node is better, because there could be more parallelism be explored.
+
+  if (compact->level() == 0){//level0
     double final_estimated_time_compute = 0.0;
     double final_estimated_time_memory = 0.0;
-#ifdef CHECK_COMPACTION_TIME
-//    compact->small_compaction = true;
-    compact->Local_CPU_util_At_Moment = LocalCPU_utilization;
-    compact->Remote_CPU_util_At_Moment = RemoteCPU_utilization;
-    compact->dynamic_remote_available_core = dynamic_remote_available_core;
-    compact->dynamic_local_available_core = dynamic_compute_available_core;
-#endif
-    // calculate the estimated execution time by static core number if it last long, use static score, if last not longer than 10 file compaction, then use dynamic score.
-//    if ((compact->num_input_files(0) + compact->num_input_files(1))/(static_memory_achievable_parallelism > compact->num_input_files(1) ? compact->num_input_files(1): static_memory_achievable_parallelism) <= 4){
-      if ((compact->num_input_files(0) + compact->num_input_files(1))<30){
-//    if ((compact->num_input_files(0) + compact->num_input_files(1))/((static_memory_achievable_parallelism + static_compute_achievable_parallelism)/2.0 > compact->num_input_files(1) ? compact->num_input_files(1): (static_memory_achievable_parallelism + static_compute_achievable_parallelism)/2.0) <= 2){
-#ifdef CHECK_COMPACTION_TIME
-      compact->small_compaction = true;
-//      compact->Local_CPU_util_At_Moment = LocalCPU_utilization;
-//      compact->Remote_CPU_util_At_Moment = RemoteCPU_utilization;
-//      compact->dynamic_remote_available_core = dynamic_remote_available_core;
-//      compact->dynamic_local_available_core = dynamic_compute_available_core;
-#endif
-//      static_compute_achievable_parallelism + static_memory_achievable_parallelism
-      // execution time is longer than a normal compaction task then use dynamic score
-      // Strategy 1: predict the level 0 execution time by dynamical info.
-      // supposing the table compaction task volume is A, then the run time for local compaciton T = A/min(available cores, maximum parallelism)
-      // supposing the table compaction task volume is A, then the run time for remote compaciton T = A* (accelerate factor)/min(available cores, maximum parallelism)
-      // BY experiment the accelerate factor is about 1/2
-      final_estimated_time_compute = 1.0/(dynamic_compute_available_core >  task_parallelism? task_parallelism: dynamic_compute_available_core);
-      final_estimated_time_memory = 1.0*8.0/(17.0*(dynamic_remote_available_core >  task_parallelism? task_parallelism: dynamic_remote_available_core));
-      // the accelerate factor here should be smaller than that in the "else". If a compaciton is fast then, the remote memory should
-    }else{
-      // Strategy 2: predict the level 0 execution time by STATIC info.
-      // supposing the table compaction task volume is A, then the run time for local compaciton T = A/min(static core number, maximum parallelism)
-      // supposing the table compaction task volume is A, then the run time for remote compaciton T = A* (accelerate factor)/min(static core number, maximum parallelism)
-      // The other level compaction should make room for the level 0 compactions.
-
-      // We may still use the dynamic available core number here because, the frontend reader and writer can eat up the CPU resources,
-      // static core numbers is too optimistic.
-      final_estimated_time_compute = 1.0/ static_compute_achievable_parallelism;
-//      final_estimated_time_compute = 1.0/(dynamic_compute_available_core >  task_parallelism? task_parallelism: dynamic_compute_available_core);
-      final_estimated_time_memory = 1.0*8.0/(17.0* static_memory_achievable_parallelism);
-
+    if(options_.usesubcompaction && compact->num_input_files(0)>=2 && compact->num_input_files(1)>=2) {//做SubCompaction的情况
+      double static_compute_achievable_parallelism = options_.max_compute_subcompactions >  task_parallelism? task_parallelism: options_.max_compute_subcompactions;
+      double static_memory_achievable_parallelism = options_.max_near_data_subcompactions >  task_parallelism? task_parallelism: options_.max_near_data_subcompactions;
+      double dynamic_compute_achievable_parallelism = dynamic_compute_available_core >  static_compute_achievable_parallelism ? static_compute_achievable_parallelism : dynamic_compute_available_core;
+      double dynamic_memory_achievable_parallelism = dynamic_remote_available_core >  static_memory_achievable_parallelism ? static_memory_achievable_parallelism : dynamic_remote_available_core;
+      if ((compact->num_input_files(0) + compact->num_input_files(1)) < 20){ //LZY:因为任务小，处理快，所以依据当前的更合理。参数有待更改
+        // predict the level 0 execution time by dynamical info.
+        // supposing the table compaction task volume is A, then the run time for local compaciton T = A/maximum parallelism
+        // supposing the table compaction task volume is A, then the run time for remote compaciton T = A* (accelerate factor)/maximum parallelism
+        // BY experiment the accelerate factor is about 8/17
+        final_estimated_time_compute = 1.0/dynamic_compute_achievable_parallelism;
+        final_estimated_time_memory = 1.0*8.0/(17.0*dynamic_memory_achievable_parallelism);
+      }else{
+        //LZY : 大文件
+        //predict the level 0 execution time by STATIC info.
+        final_estimated_time_compute = 1.0/ static_compute_achievable_parallelism;
+        final_estimated_time_memory = 1.0*8.0/(17.0* static_memory_achievable_parallelism);
+      }
+    } 
+    else{//不做SubComapction的情况  
+      double compute_compaction_speed = 300;
+      //compute_compaction_speed = 287+(1.667*dynamic_compute_available_core);//写死好一些
+      //单位MB/s 拟合特别差，无论多少核可用，基本可以视为沿300波动，推测是受其他瓶颈影响
+      double memory_compaction_speed = 58.257*exp(0.3783*dynamic_remote_available_core);
+      //约在x = 3.5~4.5时，达到300；
+      final_estimated_time_compute = 1.0/compute_compaction_speed;
+      final_estimated_time_memory = 1.0/memory_compaction_speed; 
     }
 
-    // strategy 2: could be problematic if two compute node share the same memory node, so dynamically decide the side by available computing resource is better.
-
-    if (final_estimated_time_compute < final_estimated_time_memory){
-      printf("estimate compute time %f, estimate memory time %f, the file size estimation is %f, "
-          "local cpu utilization is %f,remtoe cpu utilization is %f\n",
-             final_estimated_time_compute, final_estimated_time_memory,
-             (compact->num_input_files(0) + compact->num_input_files(0))/
-                 (static_compute_achievable_parallelism + static_memory_achievable_parallelism),
-             LocalCPU_utilization, RemoteCPU_utilization);
-      rdma_mg->local_compaction_issued.store(true);
+    if (final_estimated_time_compute < final_estimated_time_memory){//预估CN做快 快启动，慢增长CN thread
+      AddCompactionThread();
+      //rdma_mg->local_compaction_issued.store(true);//LZY 考虑一下要不要删除
       return false;
-    }else{
+    }else{//预估MN快，成倍减少CN thread
+      SubCompactionThread();
       return true;
     }
-  } else {
-    //TODO(ruihong): One possible problem for current implementation is the lagging for Remote CPU utilization heartbeat.
-    // The heart beat should be frequent enough. Otherwise the compute node may push down more compaction than expected,
-    // making the compute node idle
-    // E.g. Since the remote compaction can be cached in the task queue of the thread pool, all the bg thread in compute node
-    // may push down the compactions in the remote memory.
-    //  There will be no available thread in the thread pull for the compaction on the compute node.
-    // Three solutions: 1) update the Remote CPU utilization very frequently. 2)creating much more bg thread in the compute node.(bad choice ignore this) 3) set a limitation in the code
-    // to limit the in processing pushdown compaction (may have problem to decide what should be the ).
+  }
+  else{//其他Level 注意给level0让路的情况 让其他level的Compacion更倾向于CN做
+    double final_estimated_time_compute = 0.0;
+    double final_estimated_time_memory = 0.0;
+    if(options_.usesubcompaction && compact->num_input_files(0)>=2 && compact->num_input_files(1)>=2) {//做SubCompaction的情况
+      double static_compute_achievable_parallelism = (options_.max_compute_subcompactions >  task_parallelism? task_parallelism: options_.max_compute_subcompactions);
+      double static_memory_achievable_parallelism = (options_.max_near_data_subcompactions >  task_parallelism? task_parallelism: options_.max_near_data_subcompactions);
+      double dynamic_compute_achievable_parallelism = dynamic_compute_available_core >  static_compute_achievable_parallelism ? static_compute_achievable_parallelism : dynamic_compute_available_core;
+      double dynamic_memory_achievable_parallelism = dynamic_remote_available_core >  static_memory_achievable_parallelism ? static_memory_achievable_parallelism : dynamic_remote_available_core;
+      
+      //其他层的Compaction往往重叠度低，任务一般不会特别大，故不区分任务大小
+      final_estimated_time_compute = 1.0/dynamic_compute_achievable_parallelism;
+      final_estimated_time_memory = 1.0*8.0/(17.0*dynamic_memory_achievable_parallelism);
 
-    // TODO(ruihong): if the CN is under high utilization. We may sleep here to make
-    //  the compaction tasks smaller than core number, so that there would be less context switch overhead.
-
-    //TODO(ruihong): if there is a lower mn utilization, then pushdown,
-    // else if there is a higher mn utilization, then do the compaction in the compute node
-
-    //TODO: if there is a level 0 compaction running at the remote side, try to make room, similar for the compute node side.
-    if (dynamic_remote_available_core > 0.2){
-      //A smaller threshold is good for 6 remote cores, but bad for 1 remote core.
-//      && !rdma_mg->remote_compaction_issued.at(shard_target_node_id)->load()
-      // supposing the remote computing power is enough.
-//      if (dynamic_remote_available_core < 1.5){
-//        rdma_mg->remote_compaction_issued.at(shard_target_node_id)->store(true);
-//      }
-      if (dynamic_remote_available_core > 1){
+      if (final_estimated_time_compute < final_estimated_time_memory){//预估CN做快 快启动，慢增长CN thread
+        AddCompactionThread();
+        //rdma_mg->local_compaction_issued.store(true);//LZY 考虑一下要不要删除
+        return false;
+      }else{//预估MN快，成倍减少CN thread
+        SubCompactionThread();
         return true;
       }
-      if ((std::rand()%10)/10.0 < ((dynamic_remote_available_core-0.2)/0.8)){
+    }
+    else{//不做SubComapction的情况
+      if(dynamic_remote_available_core < 0.2 && dynamic_compute_available_core < 0.5){//两侧都很忙的情况
+        usleep(compact->level()*50);
+        goto retry;
+      }
+      if(dynamic_remote_available_core > 1){
+        SubCompactionThread();
         return true;
-      }else{
+      }
+      else if(dynamic_compute_available_core > 3){ //&& !rdma_mg->local_compaction_issued.load()){//max_compute_compactions/2 *max_compute_subcompactions *0.035 + 1
+        AddCompactionThread();
+        //rdma_mg->local_compaction_issued.store(true);
         return false;
       }
-//      return true;
-    }else if (dynamic_compute_available_core > 0.5 && !rdma_mg->local_compaction_issued.load() ){
-      // supposing the local computing power is enough.
-      printf("dynamic remote available core is %f, dynamic local available core is %f\n",dynamic_remote_available_core, dynamic_compute_available_core);
-//      if (dynamic_compute_available_core > 1){
-//        rdma_mg->local_compaction_issued.store(true);
-//
-//        return false;
-//      }
-//      //Issue the near data compaciton with probability
-//      if ((std::rand()%10)/10.0 < (1.0-dynamic_compute_available_core)/0.8){
-//        rdma_mg->local_compaction_issued.store(true);
-//
-//        return false;
-//      }else{
-//        usleep(compact->level()*500);
-//        goto retry;
-//      }
-        rdma_mg->local_compaction_issued.store(true);
-      return false;
-    }else{
-      //if local computing power is not enough sleep for a while to avoid context switching overhead.
-      // TODO: THis could be more fine-grained.
-//      while(rdma_mg->local_cpu_percent.load()*)
-//      printf("remote computing power is smaller than 0.05, and compute node CPU utilization is less than 1 core");
-      usleep(compact->level()*500);
-      goto retry;
-      //      return false;
+      else if(dynamic_remote_available_core > 0.5){
+        SubCompactionThread();
+        return true;
+      }
+      else{//能走到这一步，两侧都是比较忙的状态了，但又不至于sleep
+        if(dynamic_remote_available_core/dynamic_compute_available_core > virtual_remote_core/virtual_local_core){
+          SubCompactionThread();
+          return true;
+        }
+        else{ //都挺忙的就不加了
+          //return false;
+          //new 加的goto
+          usleep(compact->level()*500);
+          printf("///retry///\n");
+          goto retry;
+        }
+      }
     }
-//    return (mn_percent <= 80.0);
   }
-
 #elif NEARDATACOMPACTION == 0
+  //CN做compaction 继续，测dynanmic核和Compaction的关系
+#ifdef CHECK_COMPACTION_TIME
+  auto rdma_mg = env_->rdma_mg;
+  
+  double virtual_local_core = options_.max_background_flushes+options_.max_compute_compactions+options_.max_compute_subcompactions*options_.max_compute_compactions*0.035+1;
+  double LocalCPU_utilization = rdma_mg->local_cpu_percent.load();
+  LocalCPU_utilization *= (double)rdma_mg->local_compute_core_number/virtual_local_core;
+
+  double dynamic_compute_available_core =  virtual_local_core*
+                                            (LocalCPU_utilization > 100.0 ? 0:(100.0 - LocalCPU_utilization))/100.0;
+  compact->dynamic_local_available_core = dynamic_compute_available_core;
+  printf("///this time dynamic_local_available_core = %lf///\n",compact->dynamic_local_available_core);
+#endif
   return false;
 #else
+#ifdef CHECK_COMPACTION_TIME
+  auto rdma_mg = env_->rdma_mg;
+
+  double virtual_remote_core = 1.0+options_.max_near_data_compactions+options_.max_near_data_subcompactions*options_.max_near_data_compactions*0.035+1; 
+  double  RemoteCPU_utilization= rdma_mg->server_cpu_percent.at(shard_target_node_id)->load();
+  RemoteCPU_utilization *= (double)rdma_mg->remote_core_number_map.at(shard_target_node_id)/virtual_remote_core;  
+
+  double dynamic_remote_available_core = virtual_remote_core * 
+                                                 (RemoteCPU_utilization > 100.0 ? 0 : (100.0-RemoteCPU_utilization))/100.0;
+  compact->dynamic_remote_available_core = dynamic_remote_available_core;                                           
+#endif
   return true; //Use NearDataCompaction
 #endif
-
 }
 bool DBImpl::CheckByteaddressableOrNot(Compaction* compact) {
 #if TABLE_STRATEGY==0
@@ -1889,7 +1918,7 @@ void DBImpl::BackgroundCompaction(void* p) { //LZY:参数好像没用到\目前�
 //            static_cast<unsigned long long>(f->file_size),
 //            status.ToString().c_str(), versions_->LevelSummary(&tmp));
        DEBUG_arg("Trival compaction< level 0 file number is %d\n", c->num_input_files(0));
-      } else if (need_push_down) { //LZY: NearCompaction  继续：if（MN_unbusy()）
+      } else if (need_push_down) { //LZY: NearCompaction  
 #ifdef MYDEBUG        
         trigger_compaction_in_level[c->level()]++;
         memory_compaction++;
@@ -1903,29 +1932,33 @@ void DBImpl::BackgroundCompaction(void* p) { //LZY:参数好像没用到\目前�
         // The neardata compaction branch
         NearDataCompaction(c); 
         auto stop = std::chrono::high_resolution_clock::now();
+#ifdef CHECK_COMPACTION_TIME
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
-        duration_time_in_level[c->level()] += duration.count();
-        compaction_size_in_level[c->level()] += (c->Total_data_size())/1024/1024;
-#ifdef LZYCHECK_COMPACTION_TIME
-        if (c->level() == 0){       
-//        if (c->small_compaction){
-          uint64_t total_size = 0;
-          uint64_t total_size_in_MB = 0;
-          total_size = c->Total_data_size();
-          total_size_in_MB = total_size/1024/1024;
-          printf("[Remote Memory]level %d compaction first level file number %d, "
-              "second level file number %d time elapse %ld, CPU_util_snap %f, available core snap %f"
-              "Total data size in MB is !%lu\n",
-                 c->level(), c->num_input_files(0), c->num_input_files(1), duration.count(),
-              c->Remote_CPU_util_At_Moment, c->dynamic_remote_available_core, total_size_in_MB);
-        }
+        uint64_t total_size = 0;
+        total_size = c->Total_data_size();
+        total_size = total_size/1024/1024; // in MB
 
+        duration_time_in_level[c->level()] += duration.count()/1000;
+        compaction_size_in_level[c->level()] += total_size;
+        
+        // int av_core = std::floor(c->dynamic_remote_available_core);
+        // compaction_speed[av_core] += duration.count()/1000.0;
+        // compaction_speed_div[av_core] +=total_size;
 #endif
+// #ifdef CHECK_COMPACTION_TIME
+//         if (c->level() == 0){       
+// //        if (c->small_compaction){
+//           uint64_t total_size = 0;
+//           uint64_t total_size_in_MB = 0;
+//           total_size = c->Total_data_size();
+//           total_size_in_MB = total_size/1024/1024;
+//           printf("///level 0 Near-data compaction happened, with parallelism %lf, get speed every MB %lld t///\n"
+//                  ,c->dynamic_remote_available_core, duration.count()/total_size_in_MB);
+//         }
 
-//        }
-//        MaybeScheduleFlushOrCompaction();
-//        return;
+// #endif
       } else { //no near-data compaction 
+      //CN compaction!
 #ifdef MYDEBUG        
         trigger_compaction_in_level[c->level()]++;
         compute_compaction++;
@@ -1937,43 +1970,41 @@ void DBImpl::BackgroundCompaction(void* p) { //LZY:参数好像没用到\目前�
 
 //        write_stall_mutex_.AssertNotHeld();
         // Only when there is enough input level files and output level files will the subcompaction triggered
-        if (options_.usesubcompaction && c->num_input_files(0)>=4 && c->num_input_files(1)>1){
+        if (options_.usesubcompaction && c->num_input_files(0)>=2 && c->num_input_files(1)>=2){
 //        if (options_.usesubcompaction && c->num_input_files(1)>1){
-
           status = DoCompactionWorkWithSubcompaction(compact);
         } else {
           status = DoCompactionWork(compact);
         }
-
         // printf("Table compaction time elapse (%ld) us, compaction level is %d, first level file number %d, the second level file number %d \n",
         //        duration.count(), compact->compaction->level(), compact->compaction->num_input_files(0),compact->compaction->num_input_files(1) );
         DEBUG("Non-trivalcompaction!\n");
         // std::cout << "compaction task table number in the first level"<<compact->compaction->inputs_[0].size() << std::endl;
         if (!status.ok()) {
-          RecordBackgroundError(status);
+        RecordBackgroundError(status);
         }
         CleanupCompaction(compact);
-//      RemoveObsoleteFiles();
+//        RemoveObsoleteFiles();
         auto stop = std::chrono::high_resolution_clock::now();
+#ifdef CHECK_COMPACTION_TIME
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
-        duration_time_in_level[c->level()] += duration.count();
-        compaction_size_in_level[c->level()] += (c->Total_data_size())/1024/1024;
-//        if (c->level() == 0) {
-#ifdef LZY_CHECK_COMPACTION_TIME
-
-        if (c->small_compaction) { //LZY:Never happen
-          uint64_t total_size = 0;
-          uint64_t total_size_in_MB = 0;
-          total_size = c->Total_data_size();
-          total_size_in_MB = total_size/1024/1024;
-          printf(
-              "[Compute] level %d compaction first level file number %d, "
-              "second level file number %d time elapse %ld, CPU_util_snap %f, "
-              "available core snap %f, Total data size in MB is %lu\n",
-              c->level(), c->num_input_files(0), c->num_input_files(1),
-              duration.count(), c->Local_CPU_util_At_Moment, c->dynamic_local_available_core, total_size_in_MB);
-        }
+        uint64_t total_size = 0;
+        total_size = c->Total_data_size();
+        total_size = total_size/1024/1024; // in MB
+        
+        duration_time_in_level[c->level()] += duration.count()/1000;
+        compaction_size_in_level[c->level()] += total_size;
+        
+        // int av_core = std::floor(c->dynamic_local_available_core);
+        // av_core=av_core>32?32:av_core;
+        // compaction_speed[av_core] += duration.count()/1000.0;
+        // compaction_speed_div[av_core] +=total_size;
+        
+        //int paralism = std::floor(c->dynamic_local_available_core);
+        //sum_time[paralism] += duration.count()/total_size ;//  可满足x并行度时，每MB处理时间为y us
+        //sum_time_div[paralism]++;
 #endif
+
 //        if (c->num_input_files(0) == 1 && c->num_input_files(1) == 1) {
 //          printf(
 //              "[Compute] level 0 compaction first level file size %lu, second level file size %lu time elapse %ld\n",
@@ -2341,7 +2372,7 @@ Status DBImpl::TryInstallMemtableFlushResults(
       break;
     }
     assert(m->sstable != nullptr);
-    edit->AddFileIfNotExist(0,m->sstable);
+    edit->AddFileIfNotExist(0,m->sstable);//LZY: 添加(level,remote_table)二元组到edit->new_files_
     batch_count++;
   }
   if (batch_count == 0){
@@ -2374,9 +2405,10 @@ Status DBImpl::TryInstallMemtableFlushResults(
 //    std::unique_lock<std::mutex> lck(versionset_mtx, std::defer_lock);
 
 
-    s = vset->LogAndApply(edit);
+    s = vset->LogAndApply(edit);//LZY:在这里进行新SST的追加，包括level文件的排序
     // Install Superversion will also modify the version reference counter.
-
+    //vset->Finalize(vset->current());//LZY add 改不了一点，从LogAndApply中提出来就有fault
+  
 #ifdef WITHPERSISTENCE
     Edit_sync_to_remote(edit, shard_target_node_id);
 #endif
@@ -3366,8 +3398,8 @@ void DBImpl::ResetThreadLocalSuperVersions() {
 Status DBImpl::DoCompactionWorkWithSubcompaction(CompactionState* compact) {  
   Compaction* c = compact->compaction;
   c->GenSubcompactionBoundaries();
-  auto boundaries = c->GetBoundaries();
-  auto sizes = c->GetSizes();
+  auto boundaries = c->GetBoundaries(); //level 1 各文件最小值
+  auto sizes = c->GetSizes();//level 1 文件数加1
   assert(boundaries->size() == sizes->size() - 1);
 //  int subcompaction_num = std::min((int)c->GetBoundariesNum(), config::max_compute_subcompactions);
   if (boundaries->size()<=options_.max_compute_subcompactions){
@@ -3390,7 +3422,7 @@ Status DBImpl::DoCompactionWorkWithSubcompaction(CompactionState* compact) {
     for (size_t i = 0; i <= boundaries->size(); i++) {
       size_t range_size = (*sizes)[i];
       Slice* start = i == 0 ? nullptr : &(*boundaries)[i - 1];
-      int files_counter = range_size <= options_.max_file_size/4 ? 0 : 1;// count this file.
+      int files_counter = range_size <= options_.max_file_size/4 ? 0 : 1;// count this file. 小文件不算，大文件算1
       // TODO(Ruihong) make a better strategy to group the boundaries.
       //Version 1
 //      while (i!=boundaries->size() && range_size < mean &&
@@ -3409,7 +3441,7 @@ Status DBImpl::DoCompactionWorkWithSubcompaction(CompactionState* compact) {
           files_counter++;
       }
       Slice* end = i == boundaries->size() ? nullptr : &(*boundaries)[i];
-      compact->sub_compact_states.emplace_back(c, start, end, range_size);
+      compact->sub_compact_states.emplace_back(c, start, end, range_size);//生成一个由多个level i+1文件组成的SubCompaction任务
     }
 
   }
@@ -4234,6 +4266,11 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) { //写�
   auto start = std::chrono::high_resolution_clock::now();
   auto total_start = std::chrono::high_resolution_clock::now();
 #endif
+
+#ifdef CHECK_INSERT_LAT
+  auto start = std::chrono::high_resolution_clock::now();//LZY add
+#endif
+
   size_t kv_num = WriteBatchInternal::Count(updates);
   assert(kv_num == 1);
   uint64_t sequence = versions_->AssignSequnceNumbers(kv_num);//为写批次分配递增的唯一序列号-LZY
@@ -4303,6 +4340,14 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) { //写�
 //  if (thread_ready_num >= thread_num) {
 //    cv.notify_all();
 //  }
+//LZY add v
+
+#ifdef CHECK_INSERT_LAT
+  auto stop = std::chrono::high_resolution_clock::now();
+  auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(stop - start);  
+  insert_lat_append(duration.count());  
+#endif
+//LZY add ^
 #ifdef TIMEPRINT
   stop = std::chrono::high_resolution_clock::now();
   duration = std::chrono::duration_cast<std::chrono::nanoseconds>(stop - start);

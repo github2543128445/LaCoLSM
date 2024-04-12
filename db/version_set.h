@@ -369,7 +369,7 @@ class VersionSet {
       next_file_number_ = file_number;
     }
   }
-
+  void Finalize(Version* v); //LZY change private->public
   // Return the number of Table files at the specified level.
   int NumLevelFiles(int level) const;
 
@@ -404,13 +404,14 @@ class VersionSet {
   // being compacted, or zero if there is no such log file.
   uint64_t PrevLogNumber() const { return prev_log_number_; }
 //  static bool check_compaction_state(std::shared_ptr<RemoteMemTableMetaData> sst);
+  bool PickLevel0FilePlanA(int level, Compaction* c, Version* current_snap);
+  bool PickLevel0FilePlanB(int level, Compaction* c, Version* current_snap);
   bool PickFileToCompact(int level, Compaction* c, Version* current_snap);
   // Pick level and mem_vec for a new compaction.
   // Returns nullptr if there is no compaction to be done.
   // Otherwise returns a pointer to a heap-allocated object that
   // describes the compaction.  Caller should delete the result.
   Compaction* PickCompaction(std::mutex* sv_mtx_within_function);
-
 
   // Return a compaction object for compacting the range [begin,end] in
   // the specified level.  Returns nullptr if there is nothing in that
@@ -484,7 +485,7 @@ class VersionSet {
 
   bool ReuseManifest(const std::string& dscname, const std::string& dscbase);
 
-  void Finalize(Version* v);
+  
 
   void GetRange(const std::vector<std::shared_ptr<RemoteMemTableMetaData>>& inputs, InternalKey* smallest,
                 InternalKey* largest);
@@ -547,7 +548,6 @@ class Compaction {
 
   // "which" must be either 0 or 1
   int num_input_files(int which) const { return inputs_[which].size(); }
-#ifdef CHECK_COMPACTION_TIME
   uint64_t Total_data_size() const {
     uint64_t total_size = 0;
     for (int i = 0; i < 2; ++i) {
@@ -557,7 +557,6 @@ class Compaction {
     }
     return total_size;
   }
-#endif
   // Return the ith mem_vec file at "level()+which" ("which" must be 0 or 1).
   std::shared_ptr<RemoteMemTableMetaData> input(int which, int i) const { return inputs_[which][i]; }
 

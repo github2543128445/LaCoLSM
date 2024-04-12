@@ -104,7 +104,7 @@ struct RemoteMemTableMetaData {
   //  uint64_t refs;
   uint64_t level;
   uint64_t allowed_seeks;  // Seeks allowed until compaction
-  uint64_t number;
+  uint64_t number; //永远递增的序号
 
   // The uint32_t is the offset within the file.
   std::map<uint32_t, ibv_mr*> remote_data_mrs;
@@ -179,6 +179,7 @@ class VersionEdit {
     return &deleted_files_;
   }
   void AddFileIfNotExist(int level, const std::shared_ptr<RemoteMemTableMetaData>& remote_table) {
+    //LZY: 添加(level,remote_table)二元组到edit->new_files_
     for(auto iter : new_files_){
       if (iter.second == remote_table){
         return;

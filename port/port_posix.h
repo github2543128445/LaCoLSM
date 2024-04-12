@@ -98,7 +98,8 @@
 #define TABLE_CACHE_SCALING_FACTOR 8
 #define USESEQITERATOR
 #define NEARDATACOMPACTION 2 // 0  no near data compaction, 1 always near data compaction, 2 adaptive
-#define CHECK_COMPACTION_TIME
+//#define CHECK_COMPACTION_TIME
+#define CHECK_INSERT_LAT
 //#define PERFECT_THREAD_NUMBER_FOR_BGTHREADS //DO NOT OPEN-LZY 
 #define NDEBUG //LZY:不定义会有一些多余的检查
 //#define ASYNC_READ

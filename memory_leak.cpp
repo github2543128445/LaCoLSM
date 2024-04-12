@@ -11,7 +11,7 @@ int main()
 {
   TimberSaw::DB* db;
   TimberSaw::Options options;
-  options.max_compute_compactions = 1;
+  options.now_compute_compactions = 1;
   options.max_background_flushes = 1;
   options.comparator = TimberSaw::BytewiseComparator();
   //TODO: implement the FIlter policy before initial the database

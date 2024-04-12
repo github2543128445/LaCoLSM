@@ -84,14 +84,28 @@ class DBImpl : public DB, RPC_Process {
 class DBImpl : public DB{
 #endif
  public:
-  //LZY new ↓
+  //LZY add ↓
   int trigger_compaction_in_level[7];
   int trivial_move_in_level[7];
   long long duration_time_in_level[7];
   unsigned compaction_size_in_level[7];
   int memory_compaction = 0;
   int compute_compaction = 0;
-  //LZY new ↑
+  //double sum_time[33];
+  //int sum_time_div[33];
+  double compaction_speed[35];
+  int compaction_speed_div[35];
+  double CN_utilization=0.0;
+  double MN_utilization=0.0;
+  int CN_utilization_div = 0;
+  int MN_utilization_div = 0;
+  std::mutex insert_lat_mtx;
+  std::deque<int> insert_lat;
+  void insert_lat_append(int value){
+    std::lock_guard<std::mutex> lock(insert_lat_mtx);
+    insert_lat.push_back(value);
+  }
+  //LZY add ↑
   DBImpl(const Options& options, const std::string& dbname);
   DBImpl(const Options& raw_options, const std::string& dbname,
          const std::string ub, const std::string lb);
@@ -173,7 +187,10 @@ class DBImpl : public DB{
     const InternalKey* end;    // null means end of key range
     InternalKey tmp_storage;   // Used to keep track of compaction progress
   };
-
+//LZY add v
+  void AddCompactionThread();
+  void SubCompactionThread();
+//LZY add ^
 
 
   Iterator* NewInternalIterator(const ReadOptions&,

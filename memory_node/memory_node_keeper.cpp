@@ -123,7 +123,7 @@ TimberSaw::Memory_Node_Keeper::Memory_Node_Keeper(bool use_sub_compaction,
 //    message_handler_pool_.Schedule(background_work_function, background_work_arg);
 //  }
   void Memory_Node_Keeper::SetBackgroundThreads(int num, ThreadPoolType type) {
-    printf("///now Compaction %d///\n\n",num);
+    //printf("///now Compaction %d///\n\n",num);
     Compactor_pool_.SetBackgroundThreads(num);
   }
 //  void Memory_Node_Keeper::MaybeScheduleCompaction(std::string& client_ip) {
@@ -2111,6 +2111,7 @@ int Memory_Node_Keeper::server_sock_connect(const char* servername, int port) {
   }
 
   void Memory_Node_Keeper::sst_compaction_handler(void* arg) {
+
     RDMA_Request* request = ((Arg_for_handler*) arg)->request;
     std::string client_ip = ((Arg_for_handler*) arg)->client_ip;
     uint8_t target_node_id = ((Arg_for_handler*) arg)->target_node_id;
@@ -2199,7 +2200,7 @@ int Memory_Node_Keeper::server_sock_connect(const char* servername, int port) {
 
     CompactionState* compact = new CompactionState(&c);
     //LZY change v
-    if (usesubcompaction && c.num_input_files(0)>=4 && c.num_input_files(1)>1){ //level > 4 && level1 > 1
+    if (usesubcompaction && c.num_input_files(0)>=4 && c.num_input_files(1)>=2){ //继续，重新测
 //    if (usesubcompaction && c.num_input_files(1)>1){
 //      test_compaction_mutex.lock();
       status = DoCompactionWorkWithSubcompaction(compact, client_ip);//返回

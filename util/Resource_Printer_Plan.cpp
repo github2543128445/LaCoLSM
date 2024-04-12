@@ -209,7 +209,7 @@ std::string Resource_Printer_PlanB::getCurrentHost() {
   return hostname;
 }
 
-double Resource_Printer_PlanB::getCurrentValue() {
+double Resource_Printer_PlanB::getCurrentValue() {//LZY:所有CPU核加起来，占用了多少
   struct tms timeSample;
   long double percent;
 //  int all_possible_core_num = numa_num_configured_cpus();
@@ -265,7 +265,6 @@ double Resource_Printer_PlanB::getCurrentValue() {
 #endif
     current_percent = percent;
   }
-
   return static_cast<double>(percent);
 
 }
