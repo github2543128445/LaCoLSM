@@ -93,18 +93,39 @@ class DBImpl : public DB{
   int compute_compaction = 0;
   //double sum_time[33];
   //int sum_time_div[33];
-  double compaction_speed[35];
-  int compaction_speed_div[35];
-  double CN_utilization=0.0;
-  double MN_utilization=0.0;
-  int CN_utilization_div = 0;
-  int MN_utilization_div = 0;
+  //double compaction_speed[35];
+  //int compaction_speed_div[35];
   std::mutex insert_lat_mtx;
   std::deque<int> insert_lat;
+  std::mutex get_lat_mtx;
+  std::deque<int> get_lat;
   void insert_lat_append(int value){
     std::lock_guard<std::mutex> lock(insert_lat_mtx);
     insert_lat.push_back(value);
   }
+  void get_lat_append(int value){
+    std::lock_guard<std::mutex> lock(get_lat_mtx);
+    get_lat.push_back(value);
+  }
+
+  // std::mutex adaptive_mtx;
+  // std::mutex last_mtx;
+  // bool last_compaction = true;
+  // int adaptive_time = 4;
+  // int add_adaptive_time(){
+  //   std::lock_guard<std::mutex> lock(adaptive_mtx);
+  //   adaptive_time++;
+  //   if(adaptive_time>4) adaptive_time = 0;
+  //   return adaptive_time;
+  // }
+  // void zero_adaptive_time(){
+  //   std::lock_guard<std::mutex> lock(adaptive_mtx);
+  //   adaptive_time = 0;
+  // }
+  // void change_last(){
+  //   std::lock_guard<std::mutex> lock(last_mtx);
+  //   last_compaction = ~last_compaction;
+  // }
   //LZY add ↑
   DBImpl(const Options& options, const std::string& dbname);
   DBImpl(const Options& raw_options, const std::string& dbname,

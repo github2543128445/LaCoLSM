@@ -323,6 +323,44 @@ class Memory_Node_Keeper;
 class RDMA_Manager {
 
  public:
+//LZY add v
+  double CN_utilization=0.0;
+  double MN_utilization=0.0;
+  int CN_utilization_div = 0;
+  int MN_utilization_div = 0;
+  std::mutex CN_uti_mtx;
+  std::deque<double> CN_uti_q;
+  std::mutex MN_uti_mtx;
+  std::deque<double> MN_uti_q;
+  void CN_uti_append(double value){
+    std::lock_guard<std::mutex> lock(CN_uti_mtx);
+    CN_uti_q.push_back(value);
+  }
+  void MN_uti_append(double value){
+    std::lock_guard<std::mutex> lock(MN_uti_mtx);
+    MN_uti_q.push_back(value);
+  }
+  void print_uti(){
+    if(!CN_uti_q.empty()){
+      double av_uti = CN_utilization/CN_utilization_div;
+      std::sort(CN_uti_q.begin(),CN_uti_q.end());
+      double p50 = CN_uti_q[CN_uti_q.size()*0.5];
+      double p90 = CN_uti_q[CN_uti_q.size()*0.9];
+      double p99 = CN_uti_q[CN_uti_q.size()*0.99];
+      double p999 = CN_uti_q[CN_uti_q.size()*0.999];
+      printf("///CN uti: av = %lf,P50 = %lf,P90 = %lf,P99 = %lf,P999 = %lf///\n",av_uti,p90,p99,p999);
+    }
+    if(!MN_uti_q.empty()){
+      double av_uti = MN_utilization/MN_utilization_div;
+      std::sort(MN_uti_q.begin(),MN_uti_q.end());
+      double p50 = MN_uti_q[MN_uti_q.size()*0.5];
+      double p90 = MN_uti_q[MN_uti_q.size()*0.9];
+      double p99 = MN_uti_q[MN_uti_q.size()*0.99];
+      double p999 = MN_uti_q[MN_uti_q.size()*0.999];
+      printf("///MN uti: av = %lf,P50 = %lf,P90 = %lf,P99 = %lf,P999 = %lf///\n",av_uti,p90,p99,p999);
+    }
+  }
+//LZY add ^
   friend class Memory_Node_Keeper;
   friend class DBImpl;
   RDMA_Manager(config_t config, size_t remote_block_size);

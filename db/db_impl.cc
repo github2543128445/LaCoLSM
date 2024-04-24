@@ -197,7 +197,7 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
 {
   for(int i=0;i<7;i++) trigger_compaction_in_level[i]=trivial_move_in_level[i]= 0,duration_time_in_level[i]=0,compaction_size_in_level[i]=0;
   //for(int i=0;i<=32;i++) sum_time[i] = 0.0,sum_time_div[i] = 0;
-  for(int i=0;i<=32;i++) compaction_speed[i] = 0.0,compaction_speed_div[i] = 0;
+  //for(int i=0;i<=32;i++) compaction_speed[i] = 0.0,compaction_speed_div[i] = 0;
   printf("DBImpl start\n");
 #ifdef WITHPERSISTENCE
   env_->rdma_mg->Set_DB_handler(this);
@@ -332,7 +332,7 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname,
 {
   for(int i=0;i<7;i++) trigger_compaction_in_level[i]=trivial_move_in_level[i]= 0,duration_time_in_level[i]=0,compaction_size_in_level[i]=0;
   //for(int i=0;i<=32;i++) sum_time[i] = 0.0,sum_time_div[i] = 0;
-  for(int i=0;i<=32;i++) compaction_speed[i] = 0.0,compaction_speed_div[i] = 0;
+  //for(int i=0;i<=32;i++) compaction_speed[i] = 0.0,compaction_speed_div[i] = 0;
   std::shared_ptr<RDMA_Manager> rdma_mg = env_->rdma_mg;
   while(rdma_mg->RPC_handler_thread_ready_num.load() != rdma_mg->memory_nodes.size());
 
@@ -368,7 +368,7 @@ DBImpl::~DBImpl() {
       i,trigger_compaction_in_level[i],trivial_move_in_level[i],duration_time_in_level[i],compaction_size_in_level[i]);
   }
   printf("///test adaptive: %d Compute Compaction, %d Memory Compaction///\n",compute_compaction,memory_compaction);
-  printf("///CN av-utilization = %lf, MN av-utilization = %lf///\n",CN_utilization/CN_utilization_div,MN_utilization/MN_utilization_div);
+  env_->rdma_mg->print_uti();
 #endif
 
 #ifdef CHECK_INSERT_LAT  
@@ -379,6 +379,14 @@ DBImpl::~DBImpl() {
     int p99 = insert_lat[insert_lat.size()*0.99];
     int p999 = insert_lat[insert_lat.size()*0.999];
     printf("///insert latancy:P50 = %d,P90 = %d,P99 = %d,P999 = %d///\n",p50,p90,p99,p999);
+  }
+  if(!get_lat.empty()){
+    std::sort(get_lat.begin(),get_lat.end());
+    int p50 = get_lat[get_lat.size()*0.5];
+    int p90 = get_lat[get_lat.size()*0.9];
+    int p99 = get_lat[get_lat.size()*0.99];
+    int p999 = get_lat[get_lat.size()*0.999];
+    printf("///get latancy:P50 = %d,P90 = %d,P99 = %d,P999 = %d///\n",p50,p90,p99,p999);
   }
 #endif
 
@@ -1353,125 +1361,6 @@ void DBImpl::BackgroundFlush(void* p) {//目前依然是由计算节点运行-LZ
   MaybeScheduleFlushOrCompaction();
 //  undefine_mutex.Unlock();
 }
-#ifndef NEARDATACOMPACTION   
-void DBImpl::BackgroundCompaction(void* p) {
-  //  write_stall_mutex_.AssertNotHeld();
-
-  if (shutting_down_.load(std::memory_order_acquire)) {
-    // No more background work when shutting down.
-  } else if (!bg_error_.ok()) {
-    // No more background work after a background error.
-  } else if (versions_->NeedsCompaction()) {
-    Compaction* c;
-    bool is_manual = (manual_compaction_ != nullptr);
-    InternalKey manual_end;
-    if (is_manual) {
-      ManualCompaction* m = manual_compaction_;
-      c = versions_->CompactRange(m->level, m->begin, m->end);
-      m->done = (c == nullptr);
-      if (c != nullptr) {
-        manual_end = c->input(0, c->num_input_files(0) - 1)->largest;
-      }
-      Log(options_.info_log,
-          "Manual compaction at level-%d from %s .. %s; will stop at %s\n",
-          m->level, (m->begin ? m->begin->DebugString().c_str() : "(begin)"),
-          (m->end ? m->end->DebugString().c_str() : "(end)"),
-          (m->done ? "(end)" : manual_end.DebugString().c_str()));
-    } else {
-      c = versions_->PickCompaction();
-      //if there is no task to pick up, just return.
-      if (c== nullptr){
-        DEBUG("compaction task executed but not found doable task.\n");
-        delete c;
-        return;
-      }
-
-    }
-    //    write_stall_mutex_.AssertNotHeld();
-    Status status;
-    if (c == nullptr) {
-      // Nothing to do
-    } else if (!is_manual && c->IsTrivialMove()) {
-      // Move file to next level
-      assert(c->num_input_files(0) == 1);
-      std::shared_ptr<RemoteMemTableMetaData> f = c->input(0, 0);
-      c->edit()->RemoveFile(c->level(), f->number, f->creator_node_id);
-      c->edit()->AddFile(c->level() + 1, f);
-      {
-        std::unique_lock<std::mutex> l(superversion_memlist_mtx);
-        f->level = c->level() + 1;
-        c->ReleaseInputs();
-        status = versions_->LogAndApply(c->edit());
-        InstallSuperVersion();
-      }
-
-      if (!status.ok()) {
-        RecordBackgroundError(status);
-      }
-      VersionSet::LevelSummaryStorage tmp;
-      Log(options_.info_log, "Moved #%lld to level-%d %lld bytes %s: %s\n",
-          static_cast<unsigned long long>(f->number), c->level() + 1,
-          static_cast<unsigned long long>(f->file_size),
-          status.ToString().c_str(), versions_->LevelSummary(&tmp));
-      DEBUG("Trival compaction\n");
-    } else {
-//      if(CheckwhetherPushdownorNOt){
-//        NearDataCompaction()
-//      }else{
-//
-//      }
-      CompactionState* compact = new CompactionState(c);
-
-      auto start = std::chrono::high_resolution_clock::now();
-      //      write_stall_mutex_.AssertNotHeld();
-      // Only when there is enough input level files and output level files will the subcompaction triggered
-
-      if (options_.usesubcompaction && c->num_input_files(0)>=4 && c->num_input_files(1)>1){
-        status = DoCompactionWorkWithSubcompaction(compact);
-      }else{
-        status = DoCompactionWork(compact);
-      }
-
-      auto stop = std::chrono::high_resolution_clock::now();
-      auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
-      printf("Table compaction time elapse (%ld) us, compaction level is %d, first level file number %d, the second level file number %d \n",
-             duration.count(), compact->compaction->level(), compact->compaction->num_input_files(0),compact->compaction->num_input_files(1) );
-      DEBUG("Non-trivalcompaction!\n");
-      std::cout << "compaction task table number in the first level"<<compact->compaction->inputs_[0].size() << std::endl;
-      if (!status.ok()) {
-        RecordBackgroundError(status);
-      }
-      CleanupCompaction(compact);
-      //    RemoveObsoleteFiles();
-    }
-    delete c;
-
-    if (status.ok()) {
-      // Done
-    } else if (shutting_down_.load(std::memory_order_acquire)) {
-      // Ignore compaction errors found during shutting down
-    } else {
-      Log(options_.info_log, "Compaction error: %s", status.ToString().c_str());
-    }
-
-    if (is_manual) {
-      ManualCompaction* m = manual_compaction_;
-      if (!status.ok()) {
-        m->done = true;
-      }
-      if (!m->done) {
-        // We only compacted part of the requested range.  Update *m
-        // to the range that is left to be compacted.
-        m->tmp_storage = manual_end;
-        m->begin = &m->tmp_storage;
-      }
-      manual_compaction_ = nullptr;
-    }
-  }
-  MaybeScheduleFlushOrCompaction();
-
-}
-#endif   
 
 //void DBImpl::ActivateRemoteCPURefresh(){
 //  /**
@@ -1575,17 +1464,23 @@ void DBImpl::AddCompactionThread(){
 }
 void DBImpl::SubCompactionThread(){
   if(options_.now_compute_compactions == options_.min_compute_compactions) return;
-  options_.now_compute_compactions /= 2;
+  options_.now_compute_compactions -= 2;
 
   if(options_.now_compute_compactions < options_.min_compute_compactions) options_.now_compute_compactions = options_.min_compute_compactions;
   env_->SetBackgroundThreads(options_.now_compute_compactions,ThreadPoolType::CompactionThreadPool);
   return;
 }
 bool DBImpl::CheckWhetherPushDownorNot(Compaction* compact) {
-#if NEARDATACOMPACTION==2
-  // Decide whether pushdown, now we get the mn_perecnt by heartbeat
   auto rdma_mg = env_->rdma_mg;
-  retry:
+  double LocalCPU_utilization = rdma_mg->local_cpu_percent.load();
+  double RemoteCPU_utilization= rdma_mg->server_cpu_percent.at(shard_target_node_id)->load();
+#if NEARDATACOMPACTION==2
+  // if(!(compact->level() == 0 && options_.usesubcompaction && compact->num_input_files(0)>=2 && compact->num_input_files(1)>=2)){
+  //   if(add_adaptive_time()!=0) return last_compaction;
+  // }
+  // else{
+  //   zero_adaptive_time();
+  // }
   double task_parallelism = compact->num_input_files(1);
   // core number * CPU utilization percentage which represented the available cores estimated.
   //基于对节点稳定性的要求，不以最大核数作为判断依据，而以设定的最大线程数作为“虚拟核”
@@ -1596,25 +1491,19 @@ bool DBImpl::CheckWhetherPushDownorNot(Compaction* compact) {
   //但是SubCompaction小而致命，通过开关SubCompaction就能看出来，因此给一个冗余量
   if(virtual_remote_core >= (double)rdma_mg->remote_core_number_map.at(shard_target_node_id)/2) virtual_remote_core = (double)rdma_mg->remote_core_number_map.at(shard_target_node_id);
   //若少于一半，则认为是用户有意限制线程数，就采用虚拟核
-  double LocalCPU_utilization = rdma_mg->local_cpu_percent.load();
-  //CN_utilization += LocalCPU_utilization;
-  //CN_utilization_div++;
-  LocalCPU_utilization *= (double)rdma_mg->local_compute_core_number/virtual_local_core;
-  double RemoteCPU_utilization= rdma_mg->server_cpu_percent.at(shard_target_node_id)->load();
-  //MN_utilization += RemoteCPU_utilization;
-  //MN_utilization_div++;
-  RemoteCPU_utilization *= (double)rdma_mg->remote_core_number_map.at(shard_target_node_id)/virtual_remote_core;  
 
+  LocalCPU_utilization *= (double)rdma_mg->local_compute_core_number/virtual_local_core;
+  RemoteCPU_utilization *= (double)rdma_mg->remote_core_number_map.at(shard_target_node_id)/virtual_remote_core;  
 
   //LZY:按照设定的最大线程数进行转化，来判断内存节点忙碌程度
 
   // represent dynamically available core number.
   // sometimes LocalCPU_utilization will be larger than 100. If so, making dynamic_compute_available_core as 0;
   double dynamic_compute_available_core =  virtual_local_core*
-                                            (LocalCPU_utilization > 100.0 ? 0:(100.0 - LocalCPU_utilization))/100.0;
+                                            (LocalCPU_utilization > 100.0 ? 0.000001:(100.0 - LocalCPU_utilization))/100.0;
   double dynamic_remote_available_core = virtual_remote_core * 
-                                                 (RemoteCPU_utilization > 100.0 ? 0 : (100.0-RemoteCPU_utilization))/100.0;
-
+                                                 (RemoteCPU_utilization > 100.0 ? 0.000001 : (100.0-RemoteCPU_utilization))/100.0;
+  
   if (compact->level() == 0){//level0
     double final_estimated_time_compute = 0.0;
     double final_estimated_time_memory = 0.0;
@@ -1623,7 +1512,7 @@ bool DBImpl::CheckWhetherPushDownorNot(Compaction* compact) {
       double static_memory_achievable_parallelism = options_.max_near_data_subcompactions >  task_parallelism? task_parallelism: options_.max_near_data_subcompactions;
       double dynamic_compute_achievable_parallelism = dynamic_compute_available_core >  static_compute_achievable_parallelism ? static_compute_achievable_parallelism : dynamic_compute_available_core;
       double dynamic_memory_achievable_parallelism = dynamic_remote_available_core >  static_memory_achievable_parallelism ? static_memory_achievable_parallelism : dynamic_remote_available_core;
-      if ((compact->num_input_files(0) + compact->num_input_files(1)) < 20){ //LZY:因为任务小，处理快，所以依据当前的更合理。参数有待更改
+      if ((compact->num_input_files(0) + compact->num_input_files(1)) < 32){ //LZY:因为任务小，处理快，所以依据当前的更合理。参数有待更改
         // predict the level 0 execution time by dynamical info.
         // supposing the table compaction task volume is A, then the run time for local compaciton T = A/maximum parallelism
         // supposing the table compaction task volume is A, then the run time for remote compaciton T = A* (accelerate factor)/maximum parallelism
@@ -1642,11 +1531,11 @@ bool DBImpl::CheckWhetherPushDownorNot(Compaction* compact) {
       //compute_compaction_speed = 287+(1.667*dynamic_compute_available_core);//写死好一些
       //单位MB/s 拟合特别差，无论多少核可用，基本可以视为沿300波动，推测是受其他瓶颈影响
       double memory_compaction_speed = 58.257*exp(0.3783*dynamic_remote_available_core);
-      //约在x = 3.5~4.5时，达到300；
+      //约在x = 4.5时，达到300；
+    
       final_estimated_time_compute = 1.0/compute_compaction_speed;
       final_estimated_time_memory = 1.0/memory_compaction_speed; 
     }
-
     if (final_estimated_time_compute < final_estimated_time_memory){//预估CN做快 快启动，慢增长CN thread
       AddCompactionThread();
       //rdma_mg->local_compaction_issued.store(true);//LZY 考虑一下要不要删除
@@ -1668,7 +1557,6 @@ bool DBImpl::CheckWhetherPushDownorNot(Compaction* compact) {
       //其他层的Compaction往往重叠度低，任务一般不会特别大，故不区分任务大小
       final_estimated_time_compute = 1.0/dynamic_compute_achievable_parallelism;
       final_estimated_time_memory = 1.0*8.0/(17.0*dynamic_memory_achievable_parallelism);
-
       if (final_estimated_time_compute < final_estimated_time_memory){//预估CN做快 快启动，慢增长CN thread
         AddCompactionThread();
         //rdma_mg->local_compaction_issued.store(true);//LZY 考虑一下要不要删除
@@ -1679,9 +1567,10 @@ bool DBImpl::CheckWhetherPushDownorNot(Compaction* compact) {
       }
     }
     else{//不做SubComapction的情况
-      if(dynamic_remote_available_core < 0.2 && dynamic_compute_available_core < 0.5){//两侧都很忙的情况
+      if(dynamic_remote_available_core < 0.05 && dynamic_compute_available_core < 0.5){//两侧都很忙的情况
         usleep(compact->level()*50);
-        goto retry;
+        printf("///busy!///\n");
+        return CheckWhetherPushDownorNot(compact);
       }
       if(dynamic_remote_available_core > 1){
         SubCompactionThread();
@@ -1704,40 +1593,16 @@ bool DBImpl::CheckWhetherPushDownorNot(Compaction* compact) {
         else{ //都挺忙的就不加了
           //return false;
           //new 加的goto
-          usleep(compact->level()*500);
+          usleep(compact->level()*50);
           printf("///retry///\n");
-          goto retry;
+          return CheckWhetherPushDownorNot(compact);
         }
       }
     }
   }
 #elif NEARDATACOMPACTION == 0
-  //CN做compaction 继续，测dynanmic核和Compaction的关系
-#ifdef CHECK_COMPACTION_TIME
-  auto rdma_mg = env_->rdma_mg;
-  
-  double virtual_local_core = options_.max_background_flushes+options_.max_compute_compactions+options_.max_compute_subcompactions*options_.max_compute_compactions*0.035+1;
-  double LocalCPU_utilization = rdma_mg->local_cpu_percent.load();
-  LocalCPU_utilization *= (double)rdma_mg->local_compute_core_number/virtual_local_core;
-
-  double dynamic_compute_available_core =  virtual_local_core*
-                                            (LocalCPU_utilization > 100.0 ? 0:(100.0 - LocalCPU_utilization))/100.0;
-  compact->dynamic_local_available_core = dynamic_compute_available_core;
-  printf("///this time dynamic_local_available_core = %lf///\n",compact->dynamic_local_available_core);
-#endif
   return false;
 #else
-#ifdef CHECK_COMPACTION_TIME
-  auto rdma_mg = env_->rdma_mg;
-
-  double virtual_remote_core = 1.0+options_.max_near_data_compactions+options_.max_near_data_subcompactions*options_.max_near_data_compactions*0.035+1; 
-  double  RemoteCPU_utilization= rdma_mg->server_cpu_percent.at(shard_target_node_id)->load();
-  RemoteCPU_utilization *= (double)rdma_mg->remote_core_number_map.at(shard_target_node_id)/virtual_remote_core;  
-
-  double dynamic_remote_available_core = virtual_remote_core * 
-                                                 (RemoteCPU_utilization > 100.0 ? 0 : (100.0-RemoteCPU_utilization))/100.0;
-  compact->dynamic_remote_available_core = dynamic_remote_available_core;                                           
-#endif
   return true; //Use NearDataCompaction
 #endif
 }
@@ -1870,7 +1735,8 @@ void DBImpl::BackgroundCompaction(void* p) { //LZY:参数好像没用到\目前�
     if (c == nullptr) {
       // Nothing to do
     } else {
-      bool need_push_down = CheckWhetherPushDownorNot(c); //NearData-true, else-false   
+      bool need_push_down = CheckWhetherPushDownorNot(c); //NearData-true, else-false 
+      //if(need_push_down!=last_compaction) change_last();  
       if(CheckByteaddressableOrNot(c)){
 //        printf("SHould create as a byte-addressable SSTable\n");
         c->table_type = byte_addressable;
@@ -1969,8 +1835,11 @@ void DBImpl::BackgroundCompaction(void* p) { //LZY:参数好像没用到\目前�
         CompactionState* compact = new CompactionState(c);
 
 //        write_stall_mutex_.AssertNotHeld();
-        // Only when there is enough input level files and output level files will the subcompaction triggered
+#if NEARDATACOMPACTION==2        // Only when there is enough input level files and output level files will the subcompaction triggered
         if (options_.usesubcompaction && c->num_input_files(0)>=2 && c->num_input_files(1)>=2){
+#else
+        if (options_.usesubcompaction && c->num_input_files(0)>=4 && c->num_input_files(1)>=2){
+#endif
 //        if (options_.usesubcompaction && c->num_input_files(1)>1){
           status = DoCompactionWorkWithSubcompaction(compact);
         } else {
@@ -4108,7 +3977,7 @@ Status DBImpl::Get(const ReadOptions& options, const Slice& key,
 //    undefine_mutex.Unlock();
     // First look in the memtable, then in the immutable memtable (if any).
     LookupKey lkey(key, snapshot);
-
+    auto start = std::chrono::high_resolution_clock::now();//LZY add
     if (mem->Get(lkey, value, &s)) {
       // Done
     } else if (imm != nullptr && imm->Get(lkey, value, &s)) {
@@ -4117,6 +3986,9 @@ Status DBImpl::Get(const ReadOptions& options, const Slice& key,
       s = current->Get(options, lkey, value, &stats);
 //      have_stat_update = true;
     }
+    auto stop = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(stop - start);  
+    get_lat_append(duration.count());  
 //    undefine_mutex.Lock();
   }
   // TODO keep the file compaction. we remove it as we want.

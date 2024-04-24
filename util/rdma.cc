@@ -735,6 +735,9 @@ void RDMA_Manager::remote_cpu_util_heart_beater_receiver(
 
 //    uint8_t check_byte = request->content.ive.check_byte;
   server_cpu_percent.at(target_node_id)->store(request->content.cpu_info.cpu_util);
+  MN_utilization+=request->content.cpu_info.cpu_util;
+  MN_utilization_div++;
+  MN_uti_append(request->content.cpu_info.cpu_util);
 //  remote_compaction_issued.at(target_node_id_)->store(false);
   DEBUG_arg("Recieve the cpu utilization %f\n", request->content.cpu_info.cpu_util);
   delete request;
@@ -1054,11 +1057,14 @@ void RDMA_Manager::Client_Set_Up_Resources() {
   std::thread CPU_utilization_heartbeat([&](){
     while (1){
       std::this_thread::sleep_for(std::chrono::milliseconds(CPU_UTILIZATION_CACULATE_INTERVAL));
-      local_cpu_percent.store(rpter.getCurrentValue());
+      double temp = rpter.getCurrentValue();
+      local_cpu_percent.store(temp);
+      CN_utilization+=temp;
+      CN_utilization_div++;
+      CN_uti_append(temp);
       //local_compaction_issued.store(false);
       //LZY:不计算心跳就不加新任务？考虑删掉
 //      cac->CheckUtilizaitonOfCache()
-
     }
 
   });

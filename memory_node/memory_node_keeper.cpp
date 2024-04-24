@@ -2200,7 +2200,7 @@ int Memory_Node_Keeper::server_sock_connect(const char* servername, int port) {
 
     CompactionState* compact = new CompactionState(&c);
     //LZY change v
-    if (usesubcompaction && c.num_input_files(0)>=4 && c.num_input_files(1)>=2){ //继续，重新测
+    if (usesubcompaction && c.num_input_files(0)>=4 && c.num_input_files(1)>1){ //继续，重新测
 //    if (usesubcompaction && c.num_input_files(1)>1){
 //      test_compaction_mutex.lock();
       status = DoCompactionWorkWithSubcompaction(compact, client_ip);//返回
