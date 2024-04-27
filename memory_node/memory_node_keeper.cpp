@@ -70,9 +70,9 @@ TimberSaw::Memory_Node_Keeper::Memory_Node_Keeper(bool use_sub_compaction,
     // because the bg thread trigger the near data compaction will sleep.Acurately speaking,
     // the compute background thread number = compute core number  + memory core number
     Compactor_pool_.SetBackgroundThreads(available_cpu_num);
-    opts->max_near_data_subcompactions = available_cpu_num;
+    opts->max_memory_subcompactions = available_cpu_num;
 #else
-    Compactor_pool_.SetBackgroundThreads(opts->max_near_data_compactions);
+    Compactor_pool_.SetBackgroundThreads(opts->max_memory_compactions);
 #endif
     Message_handler_pool_.SetBackgroundThreads(2);
     Persistency_bg_pool_.SetBackgroundThreads(1);
@@ -757,8 +757,8 @@ Status Memory_Node_Keeper::DoCompactionWorkWithSubcompaction(
   auto boundaries = c->GetBoundaries();
   auto sizes = c->GetSizes();
   assert(boundaries->size() == sizes->size() - 1);
-  //  int subcompaction_num = std::min((int)c->GetBoundariesNum(), config::max_near_data_subcompactions);
-  if (boundaries->size()<=opts->max_near_data_subcompactions){
+  //  int subcompaction_num = std::min((int)c->GetBoundariesNum(), config::max_memory_subcompactions);
+  if (boundaries->size()<=opts->max_memory_subcompactions){
     for (size_t i = 0; i <= boundaries->size(); i++) {
       Slice* start = i == 0 ? nullptr : &(*boundaries)[i - 1];
       Slice* end = i == boundaries->size() ? nullptr : &(*boundaries)[i];
@@ -773,8 +773,8 @@ Status Memory_Node_Keeper::DoCompactionWorkWithSubcompaction(
         small_files.push_back(i);
     }
     int big_files_num = boundaries->size() - small_files.size();
-    int files_per_subcompaction = big_files_num/opts->max_near_data_subcompactions + 1;//Due to interger round down, we need add 1.
-    double mean = sum * 1.0 / opts->max_near_data_subcompactions;
+    int files_per_subcompaction = big_files_num/opts->max_memory_subcompactions + 1;//Due to interger round down, we need add 1.
+    double mean = sum * 1.0 / opts->max_memory_subcompactions;
     for (size_t i = 0; i <= boundaries->size(); i++) {
       size_t range_size = (*sizes)[i];
       Slice* start = i == 0 ? nullptr : &(*boundaries)[i - 1];
@@ -1841,12 +1841,12 @@ int Memory_Node_Keeper::server_sock_connect(const char* servername, int port) {
           send_pointer->command = cpu_utilization_heartbeat;
           send_pointer->content.cpu_info.cpu_util = cpu_util_percentage;
           send_pointer->content.cpu_info.core_number = rdma_mg->rpter.numa_bind_core_num;
-//#ifndef NDEBUG
+#ifndef NDEBUG
           if (print_counter++ == 200){
             printf("Current cpu utilization is %f\n", cpu_util_percentage);
             print_counter = 0;
           }
-//#endif
+#endif
 
 
           rdma_mg->post_send<RDMA_Request>(&send_mr, iter.first, std::string("main"));
@@ -2200,7 +2200,11 @@ int Memory_Node_Keeper::server_sock_connect(const char* servername, int port) {
 
     CompactionState* compact = new CompactionState(&c);
     //LZY change v
-    if (usesubcompaction && c.num_input_files(0)>=4 && c.num_input_files(1)>1){ //继续，重新测
+#if NEARDATACOMPACTION==2        // Only when there is enough input level files and output level files will the subcompaction triggered
+    if (usesubcompaction && c.num_input_files(0)>=opts->input0_subcompaction_thr && c.num_input_files(1)>=opts->input1_subcompaction_thr){   
+#else
+    if (usesubcompaction && c.num_input_files(0)>=4 && c.num_input_files(1)>=2){ 
+#endif
 //    if (usesubcompaction && c.num_input_files(1)>1){
 //      test_compaction_mutex.lock();
       status = DoCompactionWorkWithSubcompaction(compact, client_ip);//返回
@@ -2407,7 +2411,7 @@ int Memory_Node_Keeper::server_sock_connect(const char* servername, int port) {
     opts->env = nullptr;
     opts->filter_policy = new InternalFilterPolicy(NewBloomFilterPolicy(opts->bloom_bits));
     opts->comparator = &internal_comparator_;
-    Compactor_pool_.SetBackgroundThreads(opts->max_near_data_compactions);
+    Compactor_pool_.SetBackgroundThreads(opts->max_memory_compactions);
     printf("Option sync finished\n");
     delete request;
   }

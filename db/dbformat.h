@@ -32,8 +32,12 @@ static const int Immutable_FlushTrigger = 1;
 // with 8 fixed shard per compute node this equals 2 or 1
 static const int Immutable_StopWritesTrigger = 15; // Default 0 shard should be 15, add memtable should be totally 16 (new 16 shards:2
 // Level-0 compaction is started when we hit this many files.
+#if NEARDATACOMPACTION == 2
+static const int kL0_CompactionTrigger = 4;
+#else
 static const int kL0_CompactionTrigger = 1;
-
+#endif
+//继续，看看改这个有用吗
 // Soft limit on number of level-0 files.  We slow down writes at this point.
 // in M-M the total number of kL0_SlowdownWritesTrigger accross shard is 24
 // in 1-1 (0 shard) this value is 16

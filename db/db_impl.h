@@ -91,6 +91,8 @@ class DBImpl : public DB{
   unsigned compaction_size_in_level[7];
   int memory_compaction = 0;
   int compute_compaction = 0;
+  int compaction_num = 0;//包括subcompaction
+  int subcompaction_num = 0;
   //double sum_time[33];
   //int sum_time_div[33];
   //double compaction_speed[35];
@@ -99,6 +101,7 @@ class DBImpl : public DB{
   std::deque<int> insert_lat;
   std::mutex get_lat_mtx;
   std::deque<int> get_lat;
+  bool last_compaction_in_MN = true;
   void insert_lat_append(int value){
     std::lock_guard<std::mutex> lock(insert_lat_mtx);
     insert_lat.push_back(value);

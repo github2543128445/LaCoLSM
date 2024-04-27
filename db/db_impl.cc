@@ -368,6 +368,7 @@ DBImpl::~DBImpl() {
       i,trigger_compaction_in_level[i],trivial_move_in_level[i],duration_time_in_level[i],compaction_size_in_level[i]);
   }
   printf("///test adaptive: %d Compute Compaction, %d Memory Compaction///\n",compute_compaction,memory_compaction);
+  printf("///test SubComapction opt: %d SubCompaction, %d all Compaction///\n",subcompaction_num,compaction_num);
   env_->rdma_mg->print_uti();
 #endif
 
@@ -1486,7 +1487,7 @@ bool DBImpl::CheckWhetherPushDownorNot(Compaction* compact) {
   //基于对节点稳定性的要求，不以最大核数作为判断依据，而以设定的最大线程数作为“虚拟核”
   double virtual_local_core = options_.max_background_flushes+options_.max_compute_compactions+options_.max_compute_subcompactions*options_.max_compute_compactions*0.035+1;
   virtual_local_core = (double)rdma_mg->local_compute_core_number;
-  double virtual_remote_core = 1.0+options_.max_near_data_compactions+options_.max_near_data_subcompactions*options_.max_near_data_compactions*0.035+1; 
+  double virtual_remote_core = 1.0+options_.max_memory_compactions+options_.max_memory_subcompactions*options_.max_memory_compactions*0.035+1; 
   //1总控线程（分片）+ Compaction线程 + Comaction线程数*最大SubCompaction线程*频率（经过实验测试）+1冗余量
   //但是SubCompaction小而致命，通过开关SubCompaction就能看出来，因此给一个冗余量
   if(virtual_remote_core >= (double)rdma_mg->remote_core_number_map.at(shard_target_node_id)/2) virtual_remote_core = (double)rdma_mg->remote_core_number_map.at(shard_target_node_id);
@@ -1507,9 +1508,9 @@ bool DBImpl::CheckWhetherPushDownorNot(Compaction* compact) {
   if (compact->level() == 0){//level0
     double final_estimated_time_compute = 0.0;
     double final_estimated_time_memory = 0.0;
-    if(options_.usesubcompaction && compact->num_input_files(0)>=2 && compact->num_input_files(1)>=2) {//做SubCompaction的情况
+    if(options_.usesubcompaction && compact->num_input_files(0)>=options_.input0_subcompaction_thr && compact->num_input_files(1)>=options_.input1_subcompaction_thr) {//做SubCompaction的情况
       double static_compute_achievable_parallelism = options_.max_compute_subcompactions >  task_parallelism? task_parallelism: options_.max_compute_subcompactions;
-      double static_memory_achievable_parallelism = options_.max_near_data_subcompactions >  task_parallelism? task_parallelism: options_.max_near_data_subcompactions;
+      double static_memory_achievable_parallelism = options_.max_memory_subcompactions >  task_parallelism? task_parallelism: options_.max_memory_subcompactions;
       double dynamic_compute_achievable_parallelism = dynamic_compute_available_core >  static_compute_achievable_parallelism ? static_compute_achievable_parallelism : dynamic_compute_available_core;
       double dynamic_memory_achievable_parallelism = dynamic_remote_available_core >  static_memory_achievable_parallelism ? static_memory_achievable_parallelism : dynamic_remote_available_core;
       if ((compact->num_input_files(0) + compact->num_input_files(1)) < 32){ //LZY:因为任务小，处理快，所以依据当前的更合理。参数有待更改
@@ -1548,9 +1549,9 @@ bool DBImpl::CheckWhetherPushDownorNot(Compaction* compact) {
   else{//其他Level 注意给level0让路的情况 让其他level的Compacion更倾向于CN做
     double final_estimated_time_compute = 0.0;
     double final_estimated_time_memory = 0.0;
-    if(options_.usesubcompaction && compact->num_input_files(0)>=2 && compact->num_input_files(1)>=2) {//做SubCompaction的情况
+    if(options_.usesubcompaction && compact->num_input_files(0)>=options_.input0_subcompaction_thr && compact->num_input_files(1)>=options_.input1_subcompaction_thr) {//做SubCompaction的情况
       double static_compute_achievable_parallelism = (options_.max_compute_subcompactions >  task_parallelism? task_parallelism: options_.max_compute_subcompactions);
-      double static_memory_achievable_parallelism = (options_.max_near_data_subcompactions >  task_parallelism? task_parallelism: options_.max_near_data_subcompactions);
+      double static_memory_achievable_parallelism = (options_.max_memory_subcompactions >  task_parallelism? task_parallelism: options_.max_memory_subcompactions);
       double dynamic_compute_achievable_parallelism = dynamic_compute_available_core >  static_compute_achievable_parallelism ? static_compute_achievable_parallelism : dynamic_compute_available_core;
       double dynamic_memory_achievable_parallelism = dynamic_remote_available_core >  static_memory_achievable_parallelism ? static_memory_achievable_parallelism : dynamic_remote_available_core;
       
@@ -1571,33 +1572,34 @@ bool DBImpl::CheckWhetherPushDownorNot(Compaction* compact) {
         usleep(compact->level()*50);
         printf("///busy!///\n");
         return CheckWhetherPushDownorNot(compact);
-      }
+      }      
       if(dynamic_remote_available_core > 1){
         SubCompactionThread();
         return true;
       }
-      else if(dynamic_compute_available_core > 3){ //&& !rdma_mg->local_compaction_issued.load()){//max_compute_compactions/2 *max_compute_subcompactions *0.035 + 1
+      if(dynamic_compute_available_core > 3){ //&& !rdma_mg->local_compaction_issued.load()){//max_compute_compactions/2 *max_compute_subcompactions *0.035 + 1
         AddCompactionThread();
         //rdma_mg->local_compaction_issued.store(true);
         return false;
       }
-      else if(dynamic_remote_available_core > 0.5){
-        SubCompactionThread();
-        return true;
-      }
-      else{//能走到这一步，两侧都是比较忙的状态了，但又不至于sleep
-        if(dynamic_remote_available_core/dynamic_compute_available_core > virtual_remote_core/virtual_local_core){
-          SubCompactionThread();
-          return true;
-        }
-        else{ //都挺忙的就不加了
-          //return false;
-          //new 加的goto
-          usleep(compact->level()*50);
-          printf("///retry///\n");
-          return CheckWhetherPushDownorNot(compact);
-        }
-      }
+      // else if(dynamic_remote_available_core > 0.5){
+      //   SubCompactionThread();
+      //   return true;
+      // }
+      // else{//能走到这一步，两侧都是比较忙的状态了，但又不至于sleep
+      //   if(dynamic_remote_available_core/dynamic_compute_available_core > virtual_remote_core/virtual_local_core){
+      //     SubCompactionThread();
+      //     return true;
+      //   }
+      //   else{ //都挺忙的就不加了
+      //     //return false;
+      //     //new 加的goto
+      //     usleep(compact->level()*50);
+      //     printf("///retry///\n");
+      //     return CheckWhetherPushDownorNot(compact);
+      //   }
+      // }
+      return last_compaction_in_MN;
     }
   }
 #elif NEARDATACOMPACTION == 0
@@ -1735,7 +1737,8 @@ void DBImpl::BackgroundCompaction(void* p) { //LZY:参数好像没用到\目前�
     if (c == nullptr) {
       // Nothing to do
     } else {
-      bool need_push_down = CheckWhetherPushDownorNot(c); //NearData-true, else-false 
+      bool need_push_down = CheckWhetherPushDownorNot(c); //NearData-true, else-false
+      last_compaction_in_MN = need_push_down; 
       //if(need_push_down!=last_compaction) change_last();  
       if(CheckByteaddressableOrNot(c)){
 //        printf("SHould create as a byte-addressable SSTable\n");
@@ -1789,6 +1792,13 @@ void DBImpl::BackgroundCompaction(void* p) { //LZY:参数好像没用到\目前�
         trigger_compaction_in_level[c->level()]++;
         memory_compaction++;
 #endif
+        compaction_num++;
+#if NEARDATACOMPACTION==2        // Only when there is enough input level files and output level files will the subcompaction triggered
+        if (options_.usesubcompaction && c->num_input_files(0)>=options_.input0_subcompaction_thr && c->num_input_files(1)>=options_.input1_subcompaction_thr){
+#else
+        if (options_.usesubcompaction && c->num_input_files(0)>=4 && c->num_input_files(1)>=2){
+#endif
+        subcompaction_num++;}
        // try to let the CPU print the average CPU utilizaiton when compaciotn is triggered.
 //       if (!compaction_start){
 //          env_->rdma_mg->Print_Remote_CPU_RPC(0);
@@ -1828,6 +1838,7 @@ void DBImpl::BackgroundCompaction(void* p) { //LZY:参数好像没用到\目前�
 #ifdef MYDEBUG        
         trigger_compaction_in_level[c->level()]++;
         compute_compaction++;
+        compaction_num++;
 #endif         
         auto start = std::chrono::high_resolution_clock::now();
 
@@ -1836,11 +1847,12 @@ void DBImpl::BackgroundCompaction(void* p) { //LZY:参数好像没用到\目前�
 
 //        write_stall_mutex_.AssertNotHeld();
 #if NEARDATACOMPACTION==2        // Only when there is enough input level files and output level files will the subcompaction triggered
-        if (options_.usesubcompaction && c->num_input_files(0)>=2 && c->num_input_files(1)>=2){
+        if (options_.usesubcompaction && c->num_input_files(0)>=options_.input0_subcompaction_thr && c->num_input_files(1)>=options_.input1_subcompaction_thr){
 #else
         if (options_.usesubcompaction && c->num_input_files(0)>=4 && c->num_input_files(1)>=2){
 #endif
 //        if (options_.usesubcompaction && c->num_input_files(1)>1){
+          subcompaction_num++;
           status = DoCompactionWorkWithSubcompaction(compact);
         } else {
           status = DoCompactionWork(compact);
@@ -3267,8 +3279,8 @@ void DBImpl::ResetThreadLocalSuperVersions() {
 Status DBImpl::DoCompactionWorkWithSubcompaction(CompactionState* compact) {  
   Compaction* c = compact->compaction;
   c->GenSubcompactionBoundaries();
-  auto boundaries = c->GetBoundaries(); //level 1 各文件最小值
-  auto sizes = c->GetSizes();//level 1 文件数加1
+  auto boundaries = c->GetBoundaries(); //level 1 除了第一个，各文件最小值
+  auto sizes = c->GetSizes();//level 1 所有文件的大小
   assert(boundaries->size() == sizes->size() - 1);
 //  int subcompaction_num = std::min((int)c->GetBoundariesNum(), config::max_compute_subcompactions);
   if (boundaries->size()<=options_.max_compute_subcompactions){

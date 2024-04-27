@@ -1869,10 +1869,12 @@ bool VersionSet::PickFileToCompact(int level, Compaction* c,  //LZY:得到需要
         //LZY add 私以为level 1的Compaction也很重要，为了提高并行性，选取多个文件
         if(level == 1){
           int cnt = 1;
-          while (random_index + cnt < current_level_size && cnt < 2){//可调节参数，代表input i的数量
+          while (random_index + cnt < current_level_size && cnt < 4){//可调节参数，代表input i的数量
             std::shared_ptr<RemoteMemTableMetaData> next_f = current_snap->levels_[level][random_index + cnt];
-            c->inputs_[0].push_back(next_f);
-            cnt++;
+            if(!next_f->UnderCompaction){
+              c->inputs_[0].push_back(next_f);                           
+            }
+            cnt++; 
           }
         }       
         GetRange(c->inputs_[0], &smallest, &largest);

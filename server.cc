@@ -33,8 +33,8 @@ int main(int argc,char* argv[])
     mn_keeper = new TimberSaw::Memory_Node_Keeper(true, 19843, 88);
     TimberSaw::RDMA_Manager::node_id = 0;
   }
-
-  mn_keeper->SetBackgroundThreads(mn_keeper->get_opt()->max_near_data_compactions, TimberSaw::ThreadPoolType::CompactionThreadPool);
+  mn_keeper->set_usesubcompaction(mn_keeper->get_opt()->usesubcompaction);//LZY add 否则需要在初始化时独立设置
+  mn_keeper->SetBackgroundThreads(mn_keeper->get_opt()->max_memory_compactions, TimberSaw::ThreadPoolType::CompactionThreadPool);
 //  std::thread CPU_utilization_heartbeat([&](){
 //    // std::ofstream myfile;
 //    while (1){
