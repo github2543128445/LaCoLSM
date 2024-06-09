@@ -73,7 +73,7 @@ struct TimberSaw_EXPORT Options {
 
   int min_compute_compactions = 4;
   int now_compute_compactions = 12;//
-  int max_compute_compactions = 16;//
+  int max_compute_compactions = 24;//
   int max_compute_subcompactions = 12; // 1-1 setup is 12; M-M  12 as well
   
   int max_memory_compactions = 4;
