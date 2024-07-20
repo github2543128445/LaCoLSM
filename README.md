@@ -1,3 +1,5 @@
+# LaCoLSM: An LSM-Based Index for RDMA-Enabled Memory Disaggregation With Load-Aware Compaction Optimization
+LaCoLSM is based on dLSM, above is dLSM's readme
 # dLSM: An LSM-Based Index for RDMA-Enabled Memory Disaggregation
 
 dLSM is the first purpose-built LSM-based indexing system for the emerging disaggregated memory DBMSs. dLSM develops a series of optimizations to address the performance challenges. dLSM significantly reduces the software overhead (e.g., the overhead of synchronizing the in-memory write and flushing), to unlock the full potential of the fast RDMA networking. dLSM offloads the LSM-tree compaction to the remote memory node, and addresses a number of follow-up issues (e.g., RPC and garbage collection) to significantly reduce the data movement. dLSM is tuned to deprecate the concept of block structures to leverage the byte-addressability in RDMA-enabled disaggregated memory. Finally, dLSM optimizes the RDMA communication channel including customized RPC, asynchronous RDMA I/O, and optimized thread local queue pairs.
