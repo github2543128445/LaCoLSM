@@ -1,0 +1,70 @@
+# C/C++ 源文件和头文件
+*.cpp text diff=cpp
+*.cc text diff=cpp
+*.c text diff=cpp
+*.hpp text diff=cpp
+*.h text diff=cpp
+*.inl text diff=cpp
+*.cxx text diff=cpp
+*.hxx text diff=cpp
+
+# CMake 文件
+CMakeLists.txt text
+*.cmake text
+*.in text
+
+# Shell 脚本
+*.sh text eol=lf
+*.bash text eol=lf
+
+# 文档文件
+*.md text diff=markdown
+*.txt text
+*.pdf binary
+*.doc binary
+*.docx binary
+
+# 配置文件
+*.conf text
+*.yml text
+*.yaml text
+*.json text
+.clang-format text
+.gitignore text
+.gitmodules text
+.cursorignore text
+
+# 二进制文件
+*.dll binary
+*.so binary
+*.dylib binary
+*.lib binary
+*.a binary
+*.exe binary
+*.out binary
+
+# 图片文件
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.svg text
+
+# 数据文件
+*.dat binary
+*.db binary
+
+# 特定项目文件
+connection.conf text
+run_bench.sh text eol=lf
+run_server.sh text eol=lf
+
+# 默认规则
+* text=auto
+
+# 语言检测规则
+*.h linguist-language=C++
+*.cpp linguist-language=C++
+*.cc linguist-language=C++
+CMakeLists.txt linguist-language=CMake 
