@@ -752,7 +752,7 @@ class Benchmark {
         method = &Benchmark::WriteSeq;
       } else if (name == Slice("fillrandom")) {
         fresh_db = true;
-        num_threads = 16;//LZY add
+        //num_threads = 16;//LZY add
         method = &Benchmark::WriteRandom;
       } else if (name == Slice("fillrandomshard")) {
         fresh_db = true;
@@ -1228,9 +1228,8 @@ class Benchmark {
       batch.Clear();
       for (int j = 0; j < entries_per_batch_; j++) {
         //The key range should be adjustable.
-//        const int k = seq ? i + j : thread->rand.Uniform(FLAGS_num*FLAGS_threads);
-        const int k = seq ? i + j : thread->rand.Next()%(FLAGS_num*16);
-        //控制Key的范围，为了跑混合负载 LZY change
+        const int k = seq ? i + j : thread->rand.Uniform(FLAGS_num*FLAGS_threads);
+        //const int k = seq ? i + j : thread->rand.Next()%(FLAGS_num*16);//控制Key的范围，为了跑混合负载 LZY change
 //        key.Set(k);
         GenerateKeyFromInt(k, &key);
 //        batch.Put(key.slice(), gen.Generate(value_size_));
