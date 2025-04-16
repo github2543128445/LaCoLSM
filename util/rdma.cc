@@ -1087,7 +1087,7 @@ void RDMA_Manager::Client_Set_Up_Resources() {
     connection_conf.erase(0, pos + space_delimiter.length());
     i++;
   }
-  compute_nodes.insert({2*i+1, connection_conf});
+  compute_nodes.insert({2*i+1, connection_conf});//按空格区分读,插入Compute node, 编号为1,3,5,7,9
   assert((node_id - 1)/2 <  compute_nodes.size());
   i = 0;
   std::getline(myfile,connection_conf );
@@ -1097,7 +1097,7 @@ void RDMA_Manager::Client_Set_Up_Resources() {
     connection_conf.erase(0, pos + space_delimiter.length());
     i++;
   }
-  memory_nodes.insert({2*i, connection_conf});
+  memory_nodes.insert({2*i, connection_conf}); //按空格区分读. 插入memory node, 编号为0,2,4,6,8  也就是说,所有节点既是内存节点也是计算节点?
   i++;
   Initialize_threadlocal_map();
 //  std::string ip_add;
