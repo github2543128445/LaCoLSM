@@ -4,3 +4,9 @@
 [submodule "third_party/benchmark"]
 	path = third_party/benchmark
 	url = https://github.com/google/benchmark
+[submodule "Code/third_party/benchmark"]
+	path = Code/third_party/benchmark
+	url = https://hub.yzuu.cf/google/benchmark.git
+[submodule "Code/third_party/googletest"]
+	path = Code/third_party/googletest
+	url = https://hub.yzuu.cf/google/googletest.git
