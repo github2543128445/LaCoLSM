@@ -348,7 +348,7 @@ class RDMA_Manager {
       double p90 = CN_uti_q[CN_uti_q.size()*0.9];
       double p99 = CN_uti_q[CN_uti_q.size()*0.99];
       double p999 = CN_uti_q[CN_uti_q.size()*0.999];
-      printf("///CN uti: av = %lf,P50 = %lf,P90 = %lf,P99 = %lf,P999 = %lf///\n",av_uti,p90,p99,p999);
+      printf("///CN uti: av = %lf,P50 = %lf,P90 = %lf,P99 = %lf,P999 = %lf///\n",av_uti,p50,p90,p99,p999);
     }
     if(!MN_uti_q.empty()){
       double av_uti = MN_utilization/MN_utilization_div;
@@ -357,7 +357,7 @@ class RDMA_Manager {
       double p90 = MN_uti_q[MN_uti_q.size()*0.9];
       double p99 = MN_uti_q[MN_uti_q.size()*0.99];
       double p999 = MN_uti_q[MN_uti_q.size()*0.999];
-      printf("///MN uti: av = %lf,P50 = %lf,P90 = %lf,P99 = %lf,P999 = %lf///\n",av_uti,p90,p99,p999);
+      printf("///MN uti: av = %lf,P50 = %lf,P90 = %lf,P99 = %lf,P999 = %lf///\n",av_uti,p50,p90,p99,p999);
     }
   }
 //LZY add ^

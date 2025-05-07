@@ -369,6 +369,15 @@ DBImpl::~DBImpl() {
   }
   printf("///test adaptive: %d Compute Compaction, %d Memory Compaction///\n",compute_compaction,memory_compaction);
   printf("///test SubComapction opt: %d SubCompaction, %d all Compaction///\n",subcompaction_num,compaction_num);
+#if NEARDATACOMPACTION == 0
+  printf("///Compactor is 0///\n");
+#endif
+#if NEARDATACOMPACTION == 1
+  printf("///Compactor is 1///\n");
+#endif
+#if NEARDATACOMPACTION == 2
+  printf("///Compactor is 2///\n");
+#endif
   env_->rdma_mg->print_uti();
 #endif
 

@@ -1,11 +1,14 @@
 #!/bin/bash
+cd ../build
+make Server db_bench TimberSaw
 
-if [ $# -ne 2 ]; then
-    echo "Usage: $0 <thread> <ops_per_thread>"
+if [ $# -ne 3 ]; then
+    echo "Usage: $0 <node_id> <thread> <ops_per_thread>"
     exit 1
 fi
-thread=$1
-ops_per_thread=$2
+node_id=$1
+thread=$2
+ops_per_thread=$3
 
 # 清理临时文件
 if [ -f "temp.txt" ]; then
@@ -18,7 +21,11 @@ fi
            --value_size=400 \
            --num=$ops_per_thread \
            --bloom_bits=10 \
-           --compute_node_id=0 > temp.txt 2>&1
+           --compute_node_id=$node_id > temp.txt 2>&1
+
+# 提取Compactor值（0/1/2），默认0
+compactor=$(grep -oP '///Compactor is \K\d+' temp.txt | head -1)
+compactor=${compactor:-0}
 
 # 数据提取函数
 extract_value() {
@@ -47,12 +54,15 @@ lat_p90=$(extract_value 'insert latancy:.*P90 = \K\d+' 0)
 lat_p99=$(extract_value 'insert latancy:.*P99 = \K\d+' 0)
 lat_p999=$(extract_value 'insert latancy:.*P999 = \K\d+' 0)
 
-# 构建CSV行
-csv_row="$thread,$ops_per_thread,$throughput,$bandwith,$cn_avg,$cn_p50,$cn_p90,$cn_p99,$mn_avg,$mn_p50,$mn_p90,$mn_p99,$lat_p50,$lat_p90,$lat_p99,$lat_p999"
+# 构建CSV行（Compactor作为第一列）
+csv_row="$compactor,$node_id,$thread,$ops_per_thread,$throughput,$bandwith,$cn_avg,$cn_p50,$cn_p90,$cn_p99,$mn_avg,$mn_p50,$mn_p90,$mn_p99,$lat_p50,$lat_p90,$lat_p99,$lat_p999"
 
-# 写入CSV文件
-csv_file="3-1fillrandom-zipf-CNcomp.csv"
+# 写入CSV文件（更新标题行）
+csv_file="new.csv"
 if [ ! -f "$csv_file" ]; then
-    echo "thread,ops per thread,throughput,bandwith,CN util avg,CN P50,CN P90,CN P99,MN util avg,MN P50,MN P90,MN P99,insert lat P50,insert P90,insert P99,insert P999" > "$csv_file"
+    echo "compactor,node_id,thread,ops per thread,throughput,bandwith,CN util avg,CN P50,CN P90,CN P99,MN util avg,MN P50,MN P90,MN P99,insert lat P50,insert P90,insert P99,insert P999" > "$csv_file"
 fi
 echo "$csv_row" >> "$csv_file"
+
+# 示例
+# ./run.sh 0 16 10000000
