@@ -450,6 +450,7 @@ class Stats {
   void Report(const Slice& name) {
     // Pretend at least one op was done in case we are running a benchmark
     // that does not call FinishedSingleOp().
+    std::fflush(stdout);
     if (done_ < 1) done_ = 1;
     double elapsed = (finish_ - start_) * 1e-6;
     std::string extra;
@@ -463,16 +464,17 @@ class Stats {
       extra = rate;
     }
     AppendWithSpace(&extra, message_);
-
+    printf("test 1\n");
     std::fprintf(stdout, "%-12s: %8.3f micros/op; %ld ops/sec;%s%s\n",
                  name.ToString().c_str(), seconds_ * 1e6 / done_, (long)(done_/elapsed),//时延是平均时延，吞吐是总吞吐
                  (extra.empty() ? "" : " "), extra.c_str());
-
+    printf("test 2\n");
     if (FLAGS_histogram) {
       std::fprintf(stdout, "Microseconds per op:\n%s\n",
                    hist_.ToString().c_str());
     }
     std::fflush(stdout);
+    printf("test E\n");
   }
   void Report_Batch(const Slice& name, int thread_num, FILE* file) {
     // Pretend at least one op was done in case we are running a benchmark
@@ -976,7 +978,12 @@ class Benchmark {
     for (int i = 1; i < n; i++) {
       arg[0].thread->stats.Merge(arg[i].thread->stats);
     }
+
+    if(db_ == nullptr) printf("!!!!db has been deleted!!!!\n");
+    db_->DBreport();
+    
     arg[0].thread->stats.Report(name); //只报告0，但实际上将所有线程进行了Merge（ops\runseconds\bytes）
+    
     if (FLAGS_comparisons) {
       fprintf(stdout, "Comparisons: %zu\n", count_comparator_.comparisons());
       count_comparator_.reset();

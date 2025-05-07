@@ -129,6 +129,56 @@ class DBImpl : public DB{
   //   std::lock_guard<std::mutex> lock(last_mtx);
   //   last_compaction = ~last_compaction;
   // }
+  virtual void DBreport(){
+    //LZY add ↓
+    printf("-----DBImpl->DBreport-----\n");
+    #ifdef MYDEBUG
+    for(int i=0;i<=5;i++){
+      duration_time_in_level[i] = duration_time_in_level[i]/1000;
+      printf("///level %d has %d compactions and %d trival move\n\tcompaction keeps %lld s, with %u MB///\n",
+        i,trigger_compaction_in_level[i],trivial_move_in_level[i],duration_time_in_level[i],compaction_size_in_level[i]);
+    }
+    printf("///test adaptive: %d Compute Compaction, %d Memory Compaction///\n",compute_compaction,memory_compaction);
+    printf("///test SubComapction opt: %d SubCompaction, %d all Compaction///\n",subcompaction_num,compaction_num);
+    #if NEARDATACOMPACTION == 0
+    printf("///Compactor is 0///\n");
+    #endif
+    #if NEARDATACOMPACTION == 1
+    printf("///Compactor is 1///\n");
+    #endif
+    #if NEARDATACOMPACTION == 2
+    printf("///Compactor is 2///\n");
+    #endif
+    env_->rdma_mg->print_uti();
+    #endif
+
+    #ifdef CHECK_INSERT_LAT  
+    if(!insert_lat.empty()){
+      std::sort(insert_lat.begin(),insert_lat.end());
+      int p50 = insert_lat[insert_lat.size()*0.5];
+      int p90 = insert_lat[insert_lat.size()*0.9];
+      int p99 = insert_lat[insert_lat.size()*0.99];
+      int p999 = insert_lat[insert_lat.size()*0.999];
+      printf("///insert latancy:P50 = %d,P90 = %d,P99 = %d,P999 = %d///\n",p50,p90,p99,p999);
+    }
+    if(!get_lat.empty()){
+      std::sort(get_lat.begin(),get_lat.end());
+      int p50 = get_lat[get_lat.size()*0.5];
+      int p90 = get_lat[get_lat.size()*0.9];
+      int p99 = get_lat[get_lat.size()*0.99];
+      int p999 = get_lat[get_lat.size()*0.999];
+      printf("///get latancy:P50 = %d,P90 = %d,P99 = %d,P999 = %d///\n",p50,p90,p99,p999);
+    }
+    #endif
+
+    #ifdef CHECK_COMPACTION_TIME  
+    // for(int i=0;i<=32;i++){
+    //   printf("///when less than %d.5 avaliable core, speed %lf MB/s ///\n",i,1000.0*compaction_speed_div[i]/compaction_speed[i]);
+    // }
+    #endif  
+    std::fflush(stdout);
+    //LZY add ↑
+  }
   //LZY add ↑
   DBImpl(const Options& options, const std::string& dbname);
   DBImpl(const Options& raw_options, const std::string& dbname,

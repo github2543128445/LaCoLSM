@@ -52,6 +52,7 @@ class TimberSaw_EXPORT DB {
   // OK on success.
   // Stores nullptr in *dbptr and returns a non-OK status on error.
   // Caller should delete *dbptr when it is no longer needed.
+  virtual void DBreport(){printf("-----DB->DBreport-----\n");;}
   static Status Open(const Options& options, const std::string& name,
                      DB** dbptr);
 
@@ -59,7 +60,6 @@ class TimberSaw_EXPORT DB {
 
   DB(const DB&) = delete;
   DB& operator=(const DB&) = delete;
-
   virtual ~DB();
   virtual void WaitforAllbgtasks(bool clear_mem) = 0;
   // Set the database entry for "key" to "value".  Returns OK on success,
