@@ -3,6 +3,7 @@
 .vscode
 .DS_Store
 .idea
+.cache
 # Build directory.
 build/
 cmake-build-debug/
