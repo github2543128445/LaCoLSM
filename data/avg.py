@@ -91,7 +91,8 @@ if __name__ == "__main__":
     # 只需修改这个基础文件名即可
     base_name = "3-1fillrandom-zipf-MNcomp.csv"  # <--- 唯一需要修改的地方
     
-    input_files = [
+    input_files = [ #可以修改
+        f'./data-node1/{base_name}',
         f'./data-node2/{base_name}',
         f'./data-node3/{base_name}',
         f'./data-node4/{base_name}'
