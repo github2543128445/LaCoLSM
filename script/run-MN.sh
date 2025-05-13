@@ -2,4 +2,4 @@
 cd ../build
 make Server db_bench TimberSaw
 
-./Server 19843 60 0
+./Server 19843 80 0

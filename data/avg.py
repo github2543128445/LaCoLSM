@@ -1,103 +1,91 @@
 import csv
 import os
+import glob
+import argparse
 
-def process_files(input_files, output_file):
-    # 读取标题行并验证一致性
-    headers = []
-    for file in input_files:
-        with open(file, 'r') as f:
-            reader = csv.reader(f)
-            header = next(reader)
-            headers.append(header)
+def process_files(prefix):
+    # 获取数据目录路径
+    data_dir = os.path.dirname(os.path.abspath(__file__))
     
-    for h in headers[1:]:
-        if h != headers[0]:
-            raise ValueError("CSV headers do not match across input files")
+    # 确保输出目录存在
+    output_dir = os.path.join(data_dir, 'data-avg')
+    os.makedirs(output_dir, exist_ok=True)
     
-    # 读取所有数据行
-    all_data = []
-    for file in input_files:
-        with open(file, 'r') as f:
-            reader = csv.reader(f)
-            next(reader)  # Skip header
-            rows = list(reader)
-            all_data.append(rows)
+    # 收集所有匹配的文件
+    all_files = []
+    for node_dir in glob.glob(os.path.join(data_dir, 'data-node*')):
+        # 使用glob匹配所有以prefix开头的csv文件
+        pattern = os.path.join(node_dir, f'{prefix}*.csv')
+        matching_files = glob.glob(pattern)
+        all_files.extend(matching_files)
     
-    # 验证行数一致性
-    num_rows = len(all_data[0])
-    for data in all_data[1:]:
-        if len(data) != num_rows:
-            raise ValueError("Input files have different numbers of data rows")
-    
-    # 确定数值列索引
-    non_numeric = {0, 1}  # thread, ops per thread
-    numeric_indices = [i for i in range(len(headers[0])) if i not in non_numeric]
-    
-    # 分析列格式（基于第一个数据行）
-    decimal_places = {}
-    for idx in numeric_indices:
-        samples = [data[0][idx] for data in all_data]
-        dps = set()
-        for s in samples:
-            if '.' in s:
-                dps.add(len(s.split('.')[1]))
-            else:
-                dps.add(0)
-        if len(dps) > 1:
-            raise ValueError(f"Decimal format mismatch in column {headers[0][idx]}")
-        decimal_places[idx] = dps.pop()
-    
-    # 创建输出目录
-    os.makedirs(os.path.dirname(output_file), exist_ok=True)
-    
-    # 处理并写入数据
-    with open(output_file, 'w', newline='') as fout:
-        writer = csv.writer(fout)
-        writer.writerow(headers[0])
+    if not all_files:
+        print(f"未找到匹配的文件: {prefix}*.csv")
+        return
         
-        for row_idx in range(num_rows):
-            rows = [data[row_idx] for data in all_data]
+    # 读取所有数据
+    header = None
+    all_data = []
+    for file_path in all_files:
+        with open(file_path, 'r') as f:
+            reader = csv.reader(f)
+            if header is None:
+                header = next(reader)
+            else:
+                next(reader)  # 跳过标题行
+            all_data.extend(list(reader))
+    
+    # 按 thread 和 ops per thread 分组
+    groups = {}
+    for row in all_data:
+        key = (row[2], row[3])  # thread 和 ops per thread
+        if key not in groups:
+            groups[key] = []
+        groups[key].append(row)
+    
+    # 处理每个分组并计算平均值
+    result_rows = []
+    for rows in groups.values():
+        if not rows:
+            continue
             
-            # # 验证标识列一致性
-            # threads = {row[0] for row in rows}
-            # ops = {row[1] for row in rows}
-            # if len(threads) != 1 or len(ops) != 1:
-            #     raise ValueError(f"Identifier mismatch at row {row_idx+1}")
-            
-            new_row = [rows[0][0], rows[0][1]]  # 保持原始标识值
-            
-            # 计算数值列平均值
-            for idx in numeric_indices:
-                values = []
-                for row in rows:
-                    try:
-                        values.append(float(row[idx]))
-                    except ValueError:
-                        raise ValueError(f"Invalid number format at row {row_idx+1}, column {headers[0][idx]}")
-                
-                avg = sum(values) / 3
-                dp = decimal_places[idx]
-                
-                if dp == 0:
-                    formatted = f"{int(round(avg))}"
-                else:
-                    formatted = f"{avg:.{dp}f}"
-                
-                new_row.append(formatted)
-            
-            writer.writerow(new_row)
+        # 保持 compactor
+        new_row = [rows[0][0]]
+        # 添加 thread 和 ops per thread
+        new_row.extend(rows[0][2:4])
+        
+        # 计算其他列的平均值（跳过 node_id 列）
+        for col in range(4, len(header)):
+            values = [float(row[col]) for row in rows]
+            avg = sum(values) / len(values)
+            # 保持原有的小数位数
+            if '.' in rows[0][col]:
+                decimal_places = len(rows[0][col].split('.')[1])
+                new_row.append(f"{avg:.{decimal_places}f}")
+            else:
+                new_row.append(str(int(round(avg))))
+        
+        result_rows.append(new_row)
+    
+    # 准备新的标题行（移除 node_id 列）
+    new_header = [header[0]] + header[2:]
+    
+    # 写入结果，使用prefix作为输出文件名
+    output_file = os.path.join(output_dir, f'{prefix}.csv')
+    with open(output_file, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(new_header)
+        # 按 thread 和 ops per thread 排序
+        writer.writerows(sorted(result_rows, key=lambda x: (int(x[1]), int(x[2]))))
+    
+    print(f"生成结果文件: {output_file}")
+
+def main():
+    parser = argparse.ArgumentParser(description='处理CSV文件并计算平均值')
+    parser.add_argument('prefix', help='要处理的CSV文件名前缀')
+    args = parser.parse_args()
+    
+    process_files(args.prefix)
 
 if __name__ == "__main__":
-    # 只需修改这个基础文件名即可
-    base_name = "3-1fillrandom-zipf-MNcomp.csv"  # <--- 唯一需要修改的地方
-    
-    input_files = [ #可以修改
-        f'./data-node1/{base_name}',
-        f'./data-node2/{base_name}',
-        f'./data-node3/{base_name}',
-        f'./data-node4/{base_name}'
-    ]
-    output_file = f'./data-avg/{base_name}'
-    
-    process_files(input_files, output_file)
-    print(f"处理完成，结果已保存至 {output_file}")
+    main()
