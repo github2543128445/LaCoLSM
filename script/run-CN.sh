@@ -15,13 +15,31 @@ if [ -f "temp.txt" ]; then
     rm -f temp.txt
 fi
 
+# 定义信号处理函数
+db_bench_pid=""
+handle_sigint() {
+    if [ -n "$db_bench_pid" ]; then
+        echo "正在终止 db_bench 进程..."
+        kill -TERM "$db_bench_pid"
+        wait "$db_bench_pid" 2>/dev/null
+    fi
+}
+
+# 设置信号处理
+trap handle_sigint SIGINT
+
 # 运行基准测试
 ./db_bench --benchmarks=fillrandom \
            --threads=$thread \
            --value_size=400 \
            --num=$ops_per_thread \
            --bloom_bits=10 \
-           --compute_node_id=$node_id > temp.txt 2>&1
+           --compute_node_id=$node_id > temp.txt 2>&1 &
+db_bench_pid=$!
+
+# 等待 db_bench 完成
+wait $db_bench_pid
+db_bench_pid=""
 
 # 提取Compactor值（0/1/2），默认0
 compactor=$(grep -oP '///Compactor is \K\d+' temp.txt | head -1)
@@ -68,7 +86,7 @@ lat_p999=$(extract_value 'insert latancy:.*P999 = \K\d+' 0)
 csv_row="$compactor,$node_id,$thread,$ops_per_thread,$throughput,$bandwith,$cn_avg,$cn_p50,$cn_p90,$cn_p99,$mn_avg,$mn_p50,$mn_p90,$mn_p99,$lat_p50,$lat_p90,$lat_p99,$lat_p999"
 
 # 写入CSV文件（更新标题行）
-csv_file="../CNzf3-1.csv"
+csv_file="../MNzf3-1.csv"
 if [ ! -f "$csv_file" ]; then
     echo "compactor,node_id,thread,ops per thread,throughput,bandwith,CN util avg,CN P50,CN P90,CN P99,MN util avg,MN P50,MN P90,MN P99,insert lat P50,insert P90,insert P99,insert P999" > "$csv_file"
 fi
