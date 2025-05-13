@@ -11,3 +11,5 @@
   Kernel: Linux 5.15.167
   Architecture: x86-64
   ```
+
+- 当要求编写生成图片的python文件时, 将py文件生成在/data/pic-py/, 生成png到/data/pic-png/, 生成svg到/data/pic-svg/,以上在代码中应注意相对路径关系 . 文件名都为相同的名字, 具体名字看指令

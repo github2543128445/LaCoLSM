@@ -86,7 +86,7 @@ lat_p999=$(extract_value 'insert latancy:.*P999 = \K\d+' 0)
 csv_row="$compactor,$node_id,$thread,$ops_per_thread,$throughput,$bandwith,$cn_avg,$cn_p50,$cn_p90,$cn_p99,$mn_avg,$mn_p50,$mn_p90,$mn_p99,$lat_p50,$lat_p90,$lat_p99,$lat_p999"
 
 # 写入CSV文件（更新标题行）
-csv_file="../MNzf3-1.csv"
+csv_file="../CNuni3-1.csv"
 if [ ! -f "$csv_file" ]; then
     echo "compactor,node_id,thread,ops per thread,throughput,bandwith,CN util avg,CN P50,CN P90,CN P99,MN util avg,MN P50,MN P90,MN P99,insert lat P50,insert P90,insert P99,insert P999" > "$csv_file"
 fi
