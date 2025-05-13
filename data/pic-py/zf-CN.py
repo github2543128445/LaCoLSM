@@ -35,8 +35,11 @@ row_indices = range(len(combined_data) // len(nodes))
 
 # 设置图表样式
 plt.figure(figsize=(12, 6))
-bar_width = 0.1  # 将柱宽从0.15减小到0.1
+bar_width = 0.1
 group_spacing = 0.3
+
+# 定义柔和的颜色方案
+colors = ['#7CB9E8', '#F08080', '#98FB98', '#DDA0DD', '#F0E68C', '#B0C4DE', '#E6B0AA']
 
 # 绘制柱状图
 for i, node in enumerate(nodes):
@@ -45,7 +48,10 @@ for i, node in enumerate(nodes):
     plt.bar(x, 
             node_data['throughput'],
             bar_width,
-            label=f'Node {node}')
+            label=f'Node {node}',
+            color=colors[i % len(colors)],
+            alpha=0.8,
+            zorder=2)  # 确保柱状图在网格线上方
 
 # 设置x轴标签
 plt.xticks([i + (len(nodes) - 1) * bar_width / 2 for i in range(len(row_indices))],
@@ -62,7 +68,7 @@ plt.ylim(y_min, y_max * 1.2)
 
 # 将图例移到右上角
 plt.legend(loc='upper right')
-plt.grid(True, linestyle='--', alpha=0.7)
+plt.grid(True, linestyle='--', alpha=0.7, zorder=0)  # 将网格线置于底层
 
 # 保存图片
 plt.savefig('../pic-png/zf-CN.png', dpi=300, bbox_inches='tight')
