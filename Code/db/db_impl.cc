@@ -1658,13 +1658,13 @@ bool DBImpl::CheckByteaddressableOrNot(Compaction* compact) {
 
 }
 
-#ifdef NEARDATACOMPACTION
+#ifdef NEARDATACOMPACTION //LZY:这是一直有的
 void DBImpl::BackgroundCompaction(void* p) { //LZY:参数好像没用到\目前依然是由计算节点运行
-//  if (slow_down_compaction.load()){
-//    usleep(50);
-//  }
-//  write_stall_mutex_.AssertNotHeld();
-//  assert(false);
+  //  if (slow_down_compaction.load()){
+  //    usleep(50);
+  //  }
+  //  write_stall_mutex_.AssertNotHeld();
+  //  assert(false);
   if (shutting_down_.load(std::memory_order_acquire)) {
     // No more background work when shutting down.
   } else if (!bg_error_.ok()) {
@@ -1695,23 +1695,23 @@ void DBImpl::BackgroundCompaction(void* p) { //LZY:参数好像没用到\目前�
       }
 
     }
-//    write_stall_mutex_.AssertNotHeld();
+  //    write_stall_mutex_.AssertNotHeld();
 
     Status status;
     if (c == nullptr) {
       // Nothing to do
-    } else {
+    } else { //LZY:从这开始改
       bool need_push_down = CheckWhetherPushDownorNot(c); //NearData-true, else-false
       last_compaction_in_MN = need_push_down; 
       //if(need_push_down!=last_compaction) change_last();  
       if(CheckByteaddressableOrNot(c)){
-//        printf("SHould create as a byte-addressable SSTable\n");
+  //        printf("SHould create as a byte-addressable SSTable\n");
         c->table_type = byte_addressable;
       }else{
-//        printf("SHould create as a block based SSTable\n");
+  //        printf("SHould create as a block based SSTable\n");
         c->table_type = block_based;
       }
-//      versions_->table_cache_.
+  //      versions_->table_cache_.
       if (!is_manual && c->IsTrivialMove()) { 
         //LZY:如果只需要简单下移level即可，没有分裂和合并,那么只需要修改元数据（应该是，我看没远程通信） 
 #ifdef MYDEBUG        
@@ -1724,7 +1724,7 @@ void DBImpl::BackgroundCompaction(void* p) { //LZY:参数好像没用到\目前�
         c->edit()->AddFile(c->level() + 1, f);
         {
           std::unique_lock<std::mutex> l_sv(superversion_memlist_mtx);
-//          std::unique_lock<std::mutex> l_vs(versionset_mtx, std::defer_lock);
+  //          std::unique_lock<std::mutex> l_vs(versionset_mtx, std::defer_lock);
           f->level = c->level() + 1;
           status = versions_->LogAndApply(c->edit());
           //trival move need to clear the UnderCompaction flag
@@ -1735,9 +1735,9 @@ void DBImpl::BackgroundCompaction(void* p) { //LZY:参数好像没用到\目前�
           // TODO: SSTable persistency for compaction on compute side is not available yet.
           Edit_sync_to_remote(c->edit(), shard_target_node_id);
 #endif  
-//#ifndef WITHPERSISTENCE
-//          l_vs.unlock();
-//#endif
+  //#ifndef WITHPERSISTENCE
+  //          l_vs.unlock();
+  //#endif
 
           InstallSuperVersion();
         }
@@ -1745,11 +1745,11 @@ void DBImpl::BackgroundCompaction(void* p) { //LZY:参数好像没用到\目前�
         if (!status.ok()) {
           RecordBackgroundError(status);
         }
-//        VersionSet::LevelSummaryStorage tmp;
-//        Log(options_.info_log, "Moved #%lld to level-%d %lld bytes %s: %s\n",
-//            static_cast<unsigned long long>(f->number), c->level() + 1,
-//            static_cast<unsigned long long>(f->file_size),
-//            status.ToString().c_str(), versions_->LevelSummary(&tmp));
+  //        VersionSet::LevelSummaryStorage tmp;
+  //        Log(options_.info_log, "Moved #%lld to level-%d %lld bytes %s: %s\n",
+  //            static_cast<unsigned long long>(f->number), c->level() + 1,
+  //            static_cast<unsigned long long>(f->file_size),
+  //            status.ToString().c_str(), versions_->LevelSummary(&tmp));
        DEBUG_arg("Trival compaction< level 0 file number is %d\n", c->num_input_files(0));
       } else if (need_push_down) { //LZY: NearCompaction  
 #ifdef MYDEBUG        
@@ -1764,10 +1764,10 @@ void DBImpl::BackgroundCompaction(void* p) { //LZY:参数好像没用到\目前�
 #endif
         subcompaction_num++;}
        // try to let the CPU print the average CPU utilizaiton when compaciotn is triggered.
-//       if (!compaction_start){
-//          env_->rdma_mg->Print_Remote_CPU_RPC(0);
-//          compaction_start = true;
-//       }
+  //       if (!compaction_start){
+  //          env_->rdma_mg->Print_Remote_CPU_RPC(0);
+  //          compaction_start = true;
+  //       }
         auto start = std::chrono::high_resolution_clock::now();
         // The neardata compaction branch
         NearDataCompaction(c); 
@@ -1785,18 +1785,6 @@ void DBImpl::BackgroundCompaction(void* p) { //LZY:参数好像没用到\目前�
         // compaction_speed[av_core] += duration.count()/1000.0;
         // compaction_speed_div[av_core] +=total_size;
 #endif
-// #ifdef CHECK_COMPACTION_TIME
-//         if (c->level() == 0){       
-// //        if (c->small_compaction){
-//           uint64_t total_size = 0;
-//           uint64_t total_size_in_MB = 0;
-//           total_size = c->Total_data_size();
-//           total_size_in_MB = total_size/1024/1024;
-//           printf("///level 0 Near-data compaction happened, with parallelism %lf, get speed every MB %lld t///\n"
-//                  ,c->dynamic_remote_available_core, duration.count()/total_size_in_MB);
-//         }
-
-// #endif
       } else { //no near-data compaction 
       //CN compaction!
 #ifdef MYDEBUG        

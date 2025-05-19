@@ -35,26 +35,44 @@ row_indices = range(len(combined_data) // len(nodes))
 
 # 设置图表样式
 plt.figure(figsize=(12, 6))
-bar_width = 0.1
+bar_width = 0.095  # 减小柱子宽度
 group_spacing = 0.3
-
-# 定义柔和的颜色方案
-colors = ['#7CB9E8', '#F08080', '#98FB98', '#DDA0DD', '#F0E68C', '#B0C4DE', '#E6B0AA']
 
 # 绘制柱状图
 for i, node in enumerate(nodes):
     node_data = combined_data[combined_data['node'] == node]
-    x = [j + i * bar_width for j in range(len(node_data))]
-    plt.bar(x, 
-            node_data['throughput'],
-            bar_width,
-            label=f'Node {node}',
-            color=colors[i % len(colors)],
-            alpha=0.8,
-            zorder=2)  # 确保柱状图在网格线上方
+    x = [j + i * (bar_width + 0.005) for j in range(len(node_data))]  # 添加0.02的间隔
+    
+    # 根据不同的node设置不同的填充样式
+    if i == 0:  # node5
+        plt.bar(x, 
+                node_data['throughput'],
+                bar_width,
+                label=f'Node {node}',
+                color='#DC143C',
+                alpha=1,
+                zorder=2)
+    elif i == 1:  # node6
+        plt.bar(x, 
+                node_data['throughput'],
+                bar_width,
+                label=f'Node {node}',
+                color='none',
+                edgecolor='#000080',
+                hatch='//////',
+                zorder=2)
+    else:  # node7
+        plt.bar(x, 
+                node_data['throughput'],
+                bar_width,
+                label=f'Node {node}',
+                color='none',
+                edgecolor='#87CEEB',
+                hatch='xxx',
+                zorder=2)
 
-# 设置x轴标签
-plt.xticks([i + (len(nodes) - 1) * bar_width / 2 for i in range(len(row_indices))],
+# 设置x轴标签位置需要相应调整
+plt.xticks([i + (len(nodes) - 1) * (bar_width + 0.005) / 2 for i in range(len(row_indices))],
            combined_data[combined_data['node'] == nodes[0]]['thread'])
 
 # 设置标签和标题

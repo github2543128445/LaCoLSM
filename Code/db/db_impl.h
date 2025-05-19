@@ -43,7 +43,7 @@ struct SuperVersion {
   Version* current;
   // Version number of the current SuperVersion
   uint64_t version_number;
-//  std::mutex* versionset_mutex;
+ //  std::mutex* versionset_mutex;
 
   // should be called outside the mutex
   SuperVersion(MemTable* new_mem, MemTableListVersion* new_imm,
@@ -129,7 +129,7 @@ class DBImpl : public DB{
   //   std::lock_guard<std::mutex> lock(last_mtx);
   //   last_compaction = ~last_compaction;
   // }
-  virtual void DBreport(){
+  virtual void DBreport() override{
     //LZY add ↓
     printf("-----DBImpl->DBreport-----\n");
     #ifdef MYDEBUG

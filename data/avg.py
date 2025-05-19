@@ -89,3 +89,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+#python3 avg.py CNuni3-1

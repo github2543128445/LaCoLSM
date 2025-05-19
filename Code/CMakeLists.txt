@@ -152,6 +152,8 @@ target_sources(TimberSaw
     "db/dumpfile.cc"
     "db/filename.cc"
     "db/filename.h"
+    "db/offloader.cc"
+    "db/offloader.h"
     "db/inlineskiplist.h"
     "db/log_format.h"
     "db/log_reader.cc"

@@ -17,14 +17,21 @@ mn_data = pd.read_csv('../data-avg/MNuni.csv')
 # 创建图表
 plt.figure(figsize=(10, 6))
 
+# 设置x轴为对数刻度
+plt.xscale('log', base=2)
+
 # 绘制两条折线
-plt.plot(cn_data['thread'], cn_data['throughput']/1000000, marker='o', label='CN-Compaction', color='#7CB9E8')
-plt.plot(mn_data['thread'], mn_data['throughput']/1000000, marker='s', label='MN-Compaction', color='#F08080')
+plt.plot(cn_data['thread'], cn_data['throughput']/1000000, marker='o', label='CN-Compaction', color='#87CEEB')
+plt.plot(mn_data['thread'], mn_data['throughput']/1000000, marker='s', label='MN-Compaction', color='#DC143C')
 
 # 设置图表属性
 plt.xlabel('Number of Threads')
 plt.ylabel('Throughput (Mops/sec)')
 plt.grid(True, linestyle='--', alpha=0.7, zorder=0)  # 将网格线置于底层
+
+# 设置x轴的刻度
+plt.xticks(cn_data['thread'], cn_data['thread'])
+
 plt.legend()
 
 # 保存图表

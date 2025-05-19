@@ -718,8 +718,7 @@ void RDMA_Manager::compute_message_handling_thread(std::string q_id, uint8_t sha
   //      rdma_mg->Deallocate_Local_RDMA_Slot(recv_mr[i].addr, Message);
   //    }
 }
-void RDMA_Manager::remote_cpu_util_heart_beater_receiver(
-    RDMA_Request* request, uint8_t target_node_id) {
+void RDMA_Manager::remote_cpu_util_heart_beater_receiver(RDMA_Request* request, uint8_t target_node_id) {
 
   assert(request->command == cpu_utilization_heartbeat);
   //todo(ruihong): use UNLIKELY()
@@ -1115,7 +1114,7 @@ void RDMA_Manager::Client_Set_Up_Resources() {
     uint8_t target_node_id =  2*i;
     res->sock_map[target_node_id] =
         client_sock_connect(memory_nodes[target_node_id].c_str(), rdma_config.tcp_port);
-    printf("connect to node id %d\n", target_node_id);
+    printf("connect to MN node id %d\n", target_node_id);
     if (res->sock_map[target_node_id] < 0) {
       fprintf(stderr,
               "failed to establish TCP connection to server %s, port %d\n",
