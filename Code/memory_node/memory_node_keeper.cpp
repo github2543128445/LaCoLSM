@@ -74,7 +74,7 @@ TimberSaw::Memory_Node_Keeper::Memory_Node_Keeper(bool use_sub_compaction,
 #else
     Compactor_pool_.SetBackgroundThreads(opts->max_memory_compactions);
 #endif
-    Message_handler_pool_.SetBackgroundThreads(2);
+    Message_handler_pool_.SetBackgroundThreads(4);//LZY change
     Persistency_bg_pool_.SetBackgroundThreads(1);
 
     // Set up the connection information.
@@ -104,9 +104,8 @@ TimberSaw::Memory_Node_Keeper::Memory_Node_Keeper(bool use_sub_compaction,
       i++;
     }
     rdma_mg->memory_nodes.insert({2*i, connection_conf});
-    i++;
-}
-
+    i++; 
+  }
   Memory_Node_Keeper::~Memory_Node_Keeper() {
     delete opts->filter_policy;
     if (descriptor_log != nullptr){
@@ -1405,18 +1404,17 @@ Status Memory_Node_Keeper::InstallCompactionResultsToComputePreparation(
       std::unique_lock<std::shared_mutex> lck(rdma_mg->local_mem_mutex);
       rdma_mg->Preregister_Memory(pr_size);
     }
-    if (rdma_mg->sock_sync_data(socket_fd, 1, temp_send,
-                       temp_receive)) /* just send a dummy char back and forth */
-      {
+    if (rdma_mg->sock_sync_data(socket_fd, 1, temp_send,temp_receive)) /* just send a dummy char back and forth */
+    {
       fprintf(stderr, "sync error after QPs are were moved to RTS\n");
       rc = 1;
-      }
-//      shutdown(socket_fd, 2);
-//    close(socket_fd);
-    //  post_send<int>(res->mr_send, client_ip);
+    }
+    //shutdown(socket_fd, 2);
+    //close(socket_fd);
+    //post_send<int>(res->mr_send, client_ip);
     ibv_wc wc[3] = {};
     rdma_mg->connection_counter.fetch_add(1);
-//    std::thread* thread_sync;
+    //std::thread* thread_sync;
     printf("\ncheckpoint4\n");
     if (rdma_mg->connection_counter.load() == rdma_mg->compute_nodes.size()
         && rdma_mg->node_id == 0){
@@ -1471,11 +1469,11 @@ Status Memory_Node_Keeper::InstallCompactionResultsToComputePreparation(
           usleep(1024);
           continue;
         }
-//        else{
-//
-//          sleep(1);
-//          continue;
-//        }
+      //        else{
+      //
+      //          sleep(1);
+      //          continue;
+      //        }
       }
       miss_poll_counter = 0;
       if(wc[0].wc_flags & IBV_WC_WITH_IMM){
@@ -1533,13 +1531,13 @@ Status Memory_Node_Keeper::InstallCompactionResultsToComputePreparation(
         BGThreadMetadata* thread_pool_args = new BGThreadMetadata{.db = this, .func_args = argforhandler};
         Compactor_pool_.Schedule(&Memory_Node_Keeper::RPC_Compaction_Dispatch, thread_pool_args); //将RPC_Compaction_Dispatch函数加入Compactor的线程池
 //        sst_compaction_handler(nullptr);
-      } else if (receive_msg_buf->command == create_cpu_refresher) {
+      } else if (receive_msg_buf->command == create_cpu_refresher) {//废案, 实际上无人发送
         // receive a new remote cpu keeper request from compute node
         rdma_mg->post_receive<RDMA_Request>(&recv_mr[buffer_position],
                                             compute_node_id,
                                             client_ip);
         
-        create_cpu_util_sender(receive_msg_buf, client_ip, compute_node_id);
+        create_cpu_util_sender(receive_msg_buf, client_ip, compute_node_id);//弃用
       } else if (receive_msg_buf->command == request_cpu_utilization ) {
         rdma_mg->post_receive<RDMA_Request>(&recv_mr[buffer_position],
                                             compute_node_id,
@@ -1586,6 +1584,10 @@ Status Memory_Node_Keeper::InstallCompactionResultsToComputePreparation(
                                             client_ip);
         printf("RPC: CPU utilization is %f\n", TimberSaw::Memory_Node_Keeper::rdma_mg->rpter.getCurrentValue());
 
+      }else if(receive_msg_buf->command == cpu_utilization_heartbeat) {//LZY add
+        // handle the heartbeat, record the cpu utilization and core number of the remote memory
+        rdma_mg->post_receive<RDMA_Request>(&recv_mr[buffer_position], compute_node_id,client_ip);
+        rdma_mg->MN_remote_cpu_util_heart_beater_receiver(receive_msg_buf,compute_node_id);
       } else {
         printf("corrupt message from client. %d\n", receive_msg_buf->command);
         assert(false);
@@ -1602,26 +1604,29 @@ Status Memory_Node_Keeper::InstallCompactionResultsToComputePreparation(
     // TODO: Build up a exit method for shared memory side, don't forget to destroy all the RDMA resourses.
   }
   void Memory_Node_Keeper::Server_to_Client_Communication() {
-  if (rdma_mg->resources_create()) {
-    fprintf(stderr, "failed to create resources\n");
-  }
-  int rc;
-  if (rdma_mg->rdma_config.gid_idx >= 0) {
-    printf("checkpoint0\n");
-    rc = ibv_query_gid(rdma_mg->res->ib_ctx, rdma_mg->rdma_config.ib_port,
-                       rdma_mg->rdma_config.gid_idx,
-                       &(rdma_mg->res->my_gid));
-    if (rc) {
-      fprintf(stderr, "could not get gid for port %d, index %d\n",
-              rdma_mg->rdma_config.ib_port, rdma_mg->rdma_config.gid_idx);
-
-      return;
+    rdma_mg->MN_Initialize_threadlocal_map();//LZY add
+    if (rdma_mg->resources_create()) {
+      fprintf(stderr, "failed to create resources\n");
     }
-  } else
-    memset(&(rdma_mg->res->my_gid), 0, sizeof rdma_mg->res->my_gid);
-  server_sock_connect(rdma_mg->rdma_config.server_name,
-                      rdma_mg->rdma_config.tcp_port);
-}
+    //LZY insert
+    int rc;
+    if (rdma_mg->rdma_config.gid_idx >= 0) {
+      printf("checkpoint0\n");
+      rc = ibv_query_gid(rdma_mg->res->ib_ctx, rdma_mg->rdma_config.ib_port,
+                        rdma_mg->rdma_config.gid_idx,
+                        &(rdma_mg->res->my_gid));
+      if (rc) {
+        fprintf(stderr, "could not get gid for port %d, index %d\n",
+                rdma_mg->rdma_config.ib_port, rdma_mg->rdma_config.gid_idx);
+
+        return;
+      }
+    } else{
+      memset(&(rdma_mg->res->my_gid), 0, sizeof rdma_mg->res->my_gid);
+    }
+    server_sock_connect(rdma_mg->rdma_config.server_name,
+                        rdma_mg->rdma_config.tcp_port);
+  }
 // connection code for server side, will get prepared for multiple connection
 // on the same port.
 int Memory_Node_Keeper::server_sock_connect(const char* servername, int port) {
@@ -1671,15 +1676,12 @@ int Memory_Node_Keeper::server_sock_connect(const char* servername, int port) {
           break;
         }
         main_comm_threads.emplace_back(
-            [this](std::string client_ip, int socketfd) {
-              this->server_communication_thread(client_ip, socketfd);
-              },
-              std::string(address.sa_data), sockfd);
+            [this](std::string client_ip, int socketfd) {this->server_communication_thread(client_ip, socketfd);},
+            std::string(address.sa_data), 
+            sockfd
+          );
         // No need to detach, because the main_comm_threads will not be destroyed.
-//        main_comm_threads.back().detach();
-
-
-
+        // main_comm_threads.back().detach();
       }
       usleep(1000);
 
@@ -1782,7 +1784,7 @@ int Memory_Node_Keeper::server_sock_connect(const char* servername, int port) {
 
   void Memory_Node_Keeper::create_cpu_util_sender(RDMA_Request* request,
                                              std::string& client_ip,
-                                             uint8_t target_node_id){
+                                             uint8_t target_node_id){//弃用
     DEBUG("Create cpu utilization sender\n");
     
     std::thread CPU_utilization_heartbeat([&](){
@@ -1821,7 +1823,6 @@ int Memory_Node_Keeper::server_sock_connect(const char* servername, int port) {
 
   void Memory_Node_Keeper::create_cpu_util_heart_beater_sender() {
     DEBUG("Create cpu utilization sender\n");
-
     std::thread CPU_utilization_heartbeat([&](){
       //backup the function arguments
       int print_counter = 0;
@@ -1841,14 +1842,12 @@ int Memory_Node_Keeper::server_sock_connect(const char* servername, int port) {
           send_pointer->command = cpu_utilization_heartbeat;
           send_pointer->content.cpu_info.cpu_util = cpu_util_percentage;
           send_pointer->content.cpu_info.core_number = rdma_mg->rpter.numa_bind_core_num;
-#ifndef NDEBUG
+  #ifndef NDEBUG
           if (print_counter++ == 200){
             printf("Current cpu utilization is %f\n", cpu_util_percentage);
             print_counter = 0;
           }
-#endif
-
-
+  #endif
           rdma_mg->post_send<RDMA_Request>(&send_mr, iter.first, std::string("main"));
           ibv_wc wc[2] = {};
           if (rdma_mg->poll_completion(wc, 1, std::string("main"), true,
@@ -1860,15 +1859,13 @@ int Memory_Node_Keeper::server_sock_connect(const char* servername, int port) {
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(CPU_UTILIZATION_CACULATE_INTERVAL));
       }
-
-//      outfile.close();
-//      delete request;
+    //      outfile.close();
+    //      delete request;
     });
     CPU_utilization_heartbeat.detach();
     // wait for the deepcopy
     std::this_thread::sleep_for(std::chrono::milliseconds(1500));
-
-  }
+  }//弃用
 
   // the client ip can by any string differnt from read_local write_local_flush
   // and write_local_compact

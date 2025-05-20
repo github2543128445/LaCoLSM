@@ -149,7 +149,7 @@ class DBImpl : public DB{
     #if NEARDATACOMPACTION == 2
     printf("///Compactor is 2///\n");
     #endif
-    env_->rdma_mg->print_uti();
+    env_->rdma_mg->CN_print_uti();
     #endif
 
     #ifdef CHECK_INSERT_LAT  

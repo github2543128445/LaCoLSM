@@ -690,11 +690,8 @@ void RDMA_Manager::compute_message_handling_thread(std::string q_id, uint8_t sha
 #endif
       } else if(receive_msg_buf->command == cpu_utilization_heartbeat) {
         // handle the heartbeat, record the cpu utilization and core number of the remote memory
-        post_receive<RDMA_Request>(&recv_mr[buffer_counter],
-                                   shard_target_node_id,
-                                   "main");
-        remote_cpu_util_heart_beater_receiver(receive_msg_buf,
-                                              shard_target_node_id);
+        post_receive<RDMA_Request>(&recv_mr[buffer_counter], shard_target_node_id,"main");
+        remote_cpu_util_heart_beater_receiver(receive_msg_buf,shard_target_node_id);
       } else {
         printf("corrupt message from client.");
         break;
@@ -718,6 +715,28 @@ void RDMA_Manager::compute_message_handling_thread(std::string q_id, uint8_t sha
   //      rdma_mg->Deallocate_Local_RDMA_Slot(recv_mr[i].addr, Message);
   //    }
 }
+void RDMA_Manager::MN_remote_cpu_util_heart_beater_receiver(RDMA_Request* request, uint8_t target_node_id) { //LZY add
+
+  assert(request->command == cpu_utilization_heartbeat);
+  //todo(ruihong): use UNLIKELY()
+  if (!remote_core_number_received.load())[[unlikely]]{
+    std::unique_lock<std::mutex> lck(remote_core_number_map_mtx);
+    if (remote_core_number_map.find(target_node_id) == remote_core_number_map.end())[[unlikely]]{
+      remote_core_number_map[target_node_id] = request->content.cpu_info.core_number;
+    }
+    if (remote_core_number_map.size() == memory_nodes.size()){
+      remote_core_number_received.store(true);
+    }
+  }
+
+//    uint8_t check_byte = request->content.ive.check_byte;
+  server_cpu_percent.at(target_node_id)->store(request->content.cpu_info.cpu_util);
+  Remote_uti_append(target_node_id,request->content.cpu_info.cpu_util);
+  //printf("!!!! I get CN node %d cpu utilization %f !!!!\n", target_node_id, request->content.cpu_info.cpu_util);
+//  remote_compaction_issued.at(target_node_id_)->store(false);
+  DEBUG_arg("Recieve the cpu utilization %f\n", request->content.cpu_info.cpu_util);
+  delete request;
+}
 void RDMA_Manager::remote_cpu_util_heart_beater_receiver(RDMA_Request* request, uint8_t target_node_id) {
 
   assert(request->command == cpu_utilization_heartbeat);
@@ -734,13 +753,10 @@ void RDMA_Manager::remote_cpu_util_heart_beater_receiver(RDMA_Request* request, 
 
 //    uint8_t check_byte = request->content.ive.check_byte;
   server_cpu_percent.at(target_node_id)->store(request->content.cpu_info.cpu_util);
-  MN_utilization+=request->content.cpu_info.cpu_util;
-  MN_utilization_div++;
   MN_uti_append(request->content.cpu_info.cpu_util);
 //  remote_compaction_issued.at(target_node_id_)->store(false);
   DEBUG_arg("Recieve the cpu utilization %f\n", request->content.cpu_info.cpu_util);
   delete request;
-
 }
 void RDMA_Manager::ConnectQPThroughSocket(std::string qp_type, int socket_fd,
                                           uint8_t& target_node_id) {
@@ -1058,14 +1074,11 @@ void RDMA_Manager::Client_Set_Up_Resources() {
       std::this_thread::sleep_for(std::chrono::milliseconds(CPU_UTILIZATION_CACULATE_INTERVAL));
       double temp = rpter.getCurrentValue();
       local_cpu_percent.store(temp);
-      CN_utilization+=temp;
-      CN_utilization_div++;
-      CN_uti_append(temp);
+      Local_uti_append(temp);
       //local_compaction_issued.store(false);
       //LZY:不计算心跳就不加新任务？考虑删掉
 //      cac->CheckUtilizaitonOfCache()
     }
-
   });
   CPU_utilization_heartbeat.detach();
 
@@ -1128,6 +1141,49 @@ void RDMA_Manager::Client_Set_Up_Resources() {
   }
 
   while (connection_counter.load() != memory_nodes.size());
+  if (connection_counter.load() == memory_nodes.size()){//LZY add 使得CN发送CPU占用率
+    DEBUG("CN create cpu utilization sender\n");
+    std::thread CPU_utilization_heartbeat([&](){
+      //backup the function arguments
+      int print_counter = 0;
+      //TODO: REmember to recover the while loop and the continue code below.
+      while (1){
+        double cpu_util_percentage = rpter.getCurrentValue();
+        if (cpu_util_percentage <0){
+          continue;
+        }
+        for (auto iter : memory_nodes) {
+          // register the memory block from the remote memory
+          RDMA_Request* send_pointer;
+          ibv_mr send_mr = {};
+          Allocate_Local_RDMA_Slot(send_mr, Message);
+
+          send_pointer = (RDMA_Request*)send_mr.addr;
+          send_pointer->command = cpu_utilization_heartbeat;
+          send_pointer->content.cpu_info.cpu_util = cpu_util_percentage;
+          send_pointer->content.cpu_info.core_number = rpter.numa_bind_core_num;
+  #ifndef NDEBUG
+          if (print_counter++ == 200){
+            printf("Current cpu utilization is %f\n", cpu_util_percentage);
+            print_counter = 0;
+          }
+  #endif
+          post_send<RDMA_Request>(&send_mr, iter.first, std::string("main"));
+          ibv_wc wc[2] = {};
+          if (poll_completion(wc, 1, std::string("main"), true, iter.first)){
+            fprintf(stderr, "failed to poll send for remote memory register\n");
+            return ;
+          }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(CPU_UTILIZATION_CACULATE_INTERVAL));
+      }
+    //      outfile.close();
+    //      delete request;
+    });
+    CPU_utilization_heartbeat.detach();
+    // wait for the deepcopy
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500));//LZY ?
+  }
   // Start to regularly update the local CPU utilization
 //  if (RPC_handler_thread_ready_num.load() == memory_nodes.size()){
 
@@ -1135,6 +1191,71 @@ void RDMA_Manager::Client_Set_Up_Resources() {
 //  for (auto & thread : threads) {
 //    thread.join();
 //  }
+}
+void RDMA_Manager::MN_Initialize_threadlocal_map(){//LZY add 这有很多东西, 不一定用得上, 之后可以看情况删除
+  
+
+  Remote_Mem_Bitmap.insert({FlushBuffer, new std::map<uint8_t, std::map<void*, In_Use_Array*>*>});
+  Remote_Mem_Bitmap.insert({FilterChunk, new std::map<uint8_t, std::map<void*, In_Use_Array*>*>});
+  deallocation_buffers.insert({FlushBuffer, new std::map<uint8_t,uint64_t*> });
+  deallocation_buffers.insert({FilterChunk, new std::map<uint8_t,uint64_t*> });
+
+  dealloc_mtx.insert({FlushBuffer, new std::map<uint8_t,std::mutex*>});
+  dealloc_mtx.insert({FilterChunk, new std::map<uint8_t,std::mutex*>});
+  dealloc_cv.insert({FlushBuffer, new std::map<uint8_t,std::condition_variable*>});
+  dealloc_cv.insert({FilterChunk, new std::map<uint8_t,std::condition_variable*>});
+  dealloc_mr.insert({FlushBuffer, new std::map<uint8_t,ibv_mr*>});
+  dealloc_mr.insert({FilterChunk, new std::map<uint8_t,ibv_mr*>});
+  top.insert({FlushBuffer, new std::map<uint8_t,size_t>});
+  top.insert({FilterChunk, new std::map<uint8_t,size_t>});
+  uint8_t target_node_id;
+  for (int i = 0; i < compute_nodes.size(); ++i) {
+    target_node_id = 2*i+1;
+    qp_local_write_flush.insert({target_node_id,new ThreadLocalPtr(&UnrefHandle_qp)});
+    cq_local_write_flush.insert({target_node_id, new ThreadLocalPtr(&UnrefHandle_cq)});
+    local_write_flush_qp_info.insert({target_node_id, new ThreadLocalPtr(&General_Destroy<registered_qp_config*>)});
+    qp_local_write_compact.insert({target_node_id,new ThreadLocalPtr(&UnrefHandle_qp)});
+    cq_local_write_compact.insert({target_node_id, new ThreadLocalPtr(&UnrefHandle_cq)});
+    local_write_compact_qp_info.insert({target_node_id, new ThreadLocalPtr(&General_Destroy<registered_qp_config*>)});
+    qp_local_read.insert({target_node_id, new ThreadLocalPtr(&UnrefHandle_qp)});
+    cq_local_read.insert({target_node_id, new ThreadLocalPtr(&UnrefHandle_cq)});
+    local_read_qp_info.insert({target_node_id, new ThreadLocalPtr(&General_Destroy<registered_qp_config*>)});
+    Remote_Mem_Bitmap.at(FlushBuffer)->insert({target_node_id, new std::map<void*, In_Use_Array*>()});
+    Remote_Mem_Bitmap.at(FilterChunk)->insert({target_node_id, new std::map<void*, In_Use_Array*>()});
+
+    deallocation_buffers.at(FlushBuffer)->insert({target_node_id, new uint64_t[REMOTE_DEALLOC_BUFF_SIZE / sizeof(uint64_t)]});
+    dealloc_mtx.at(FlushBuffer)->insert({target_node_id, new std::mutex});
+    dealloc_cv.at(FlushBuffer)->insert({target_node_id, new std::condition_variable});
+    dealloc_mr.at(FlushBuffer)->insert({target_node_id, nullptr});
+    top.at(FlushBuffer)->insert({target_node_id,0});
+    deallocation_buffers.at(FilterChunk)->insert({target_node_id, new uint64_t[REMOTE_DEALLOC_BUFF_SIZE / sizeof(uint64_t)]});
+    dealloc_mtx.at(FilterChunk)->insert({target_node_id, new std::mutex});
+    dealloc_cv.at(FilterChunk)->insert({target_node_id, new std::condition_variable});
+    dealloc_mr.at(FilterChunk)->insert({target_node_id, nullptr});
+    top.at(FilterChunk)->insert({target_node_id,0});
+//    top.insert({target_node_id_,0});
+    mtx_imme_map.insert({target_node_id, new std::mutex});
+    imm_gen_map.insert({target_node_id, new std::atomic<uint32_t>{0}});
+    imme_data_map.insert({target_node_id, new  uint32_t{0}});
+    byte_len_map.insert({target_node_id, new  uint32_t{0}});
+    cv_imme_map.insert({target_node_id, new std::condition_variable});
+    server_cpu_percent.insert({target_node_id, new std::atomic<double>(0)});
+//    remote_compaction_issued.insert({target_node_id_, new std::atomic<bool>(false)});
+  }
+
+  std::thread CPU_utilization_heartbeat([&](){
+    while (1){
+      std::this_thread::sleep_for(std::chrono::milliseconds(CPU_UTILIZATION_CACULATE_INTERVAL));
+      double temp = rpter.getCurrentValue();
+      local_cpu_percent.store(temp);
+      Local_uti_append(temp);
+      //local_compaction_issued.store(false);
+      //LZY:不计算心跳就不加新任务？考虑删掉
+//      cac->CheckUtilizaitonOfCache()
+    }
+  });
+  printf("MN local CPU_utilization_heartbeat run\n");
+  CPU_utilization_heartbeat.detach();
 }
 void RDMA_Manager::Initialize_threadlocal_map(){
   Remote_Mem_Bitmap.insert({FlushBuffer, new std::map<uint8_t, std::map<void*, In_Use_Array*>*>});
@@ -1184,8 +1305,6 @@ void RDMA_Manager::Initialize_threadlocal_map(){
     server_cpu_percent.insert({target_node_id, new std::atomic<double>(0)});
 //    remote_compaction_issued.insert({target_node_id_, new std::atomic<bool>(false)});
   }
-
-
 }
 /******************************************************************************
 * Function: resources_create
@@ -2794,9 +2913,10 @@ int RDMA_Manager::poll_completion(ibv_wc* wc_p, int num_entries,
       if (wc_p[i].status !=
           IBV_WC_SUCCESS)  // TODO:: could be modified into check all the entries in the array
       {
+        MN_print_uti();// LZY add
         fprintf(stderr,
                 "number %d got bad completion with status: 0x%x, vendor syndrome: 0x%x\n",
-                i, wc_p[i].status, wc_p[i].vendor_err);
+                i, wc_p[i].status, wc_p[i].vendor_err);       
         assert(false);
         rc = 1;
       }
@@ -2845,9 +2965,10 @@ int RDMA_Manager::try_poll_completions(ibv_wc* wc_p,
     if (wc_p[poll_result-1].status !=
     IBV_WC_SUCCESS)  // TODO:: could be modified into check all the entries in the array
     {
+      MN_print_uti();// LZY add
       fprintf(stderr,
               "number %d got bad completion with status: 0x%x, vendor syndrome: 0x%x\n",
-              poll_result-1, wc_p[poll_result-1].status, wc_p[poll_result-1].vendor_err);
+              poll_result-1, wc_p[poll_result-1].status, wc_p[poll_result-1].vendor_err);     
       assert(false);
     }
   }

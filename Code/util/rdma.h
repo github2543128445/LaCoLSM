@@ -324,34 +324,35 @@ class RDMA_Manager {
 
  public:
 //LZY add v
-  double CN_utilization=0.0;
+  double Local_utilization=0.0;
   double MN_utilization=0.0;
-  int CN_utilization_div = 0;
-  int MN_utilization_div = 0;
-  std::mutex CN_uti_mtx;
-  std::deque<double> CN_uti_q;
+  std::mutex Local_uti_mtx;
+  std::deque<double> Local_uti_q;
   std::mutex MN_uti_mtx;
   std::deque<double> MN_uti_q;
-  void CN_uti_append(double value){
-    std::lock_guard<std::mutex> lock(CN_uti_mtx);
-    CN_uti_q.push_back(value);
+  void Local_uti_append(double value){
+    std::lock_guard<std::mutex> lock(Local_uti_mtx);
+    Local_uti_q.push_back(value);
+    Local_utilization+=value;
   }
   void MN_uti_append(double value){
     std::lock_guard<std::mutex> lock(MN_uti_mtx);
     MN_uti_q.push_back(value);
+    MN_utilization+=value;
   }
-  void print_uti(){
-    if(!CN_uti_q.empty()){
-      double av_uti = CN_utilization/CN_utilization_div;
-      std::sort(CN_uti_q.begin(),CN_uti_q.end());
-      double p50 = CN_uti_q[CN_uti_q.size()*0.5];
-      double p90 = CN_uti_q[CN_uti_q.size()*0.9];
-      double p99 = CN_uti_q[CN_uti_q.size()*0.99];
-      double p999 = CN_uti_q[CN_uti_q.size()*0.999];
+ 
+  void CN_print_uti(){
+    if(!Local_uti_q.empty()){
+      double av_uti = Local_utilization/Local_uti_q.size();
+      std::sort(Local_uti_q.begin(),Local_uti_q.end());
+      double p50 = Local_uti_q[Local_uti_q.size()*0.5];
+      double p90 = Local_uti_q[Local_uti_q.size()*0.9];
+      double p99 = Local_uti_q[Local_uti_q.size()*0.99];
+      double p999 = Local_uti_q[Local_uti_q.size()*0.999];
       printf("///CN uti: av = %lf,P50 = %lf,P90 = %lf,P99 = %lf,P999 = %lf///\n",av_uti,p50,p90,p99,p999);
     }
     if(!MN_uti_q.empty()){
-      double av_uti = MN_utilization/MN_utilization_div;
+      double av_uti = MN_utilization/MN_uti_q.size();
       std::sort(MN_uti_q.begin(),MN_uti_q.end());
       double p50 = MN_uti_q[MN_uti_q.size()*0.5];
       double p90 = MN_uti_q[MN_uti_q.size()*0.9];
@@ -360,6 +361,39 @@ class RDMA_Manager {
       printf("///MN uti: av = %lf,P50 = %lf,P90 = %lf,P99 = %lf,P999 = %lf///\n",av_uti,p50,p90,p99,p999);
     }
   }
+  std::map<uint8_t,double> Remote_utilization;
+  std::map<uint8_t,std::mutex> Remote_uti_mtx;
+  std::map<uint8_t,std::deque<double>> Remote_uti_q;
+  void Remote_uti_append(uint8_t node_id,double value){
+    std::lock_guard<std::mutex> lock(Remote_uti_mtx[node_id]);
+    Remote_uti_q[node_id].push_back(value);
+    Remote_utilization[node_id] += value;  
+  }
+  void MN_print_uti(){
+    printf("///MN print begin///\n");
+    if(!Local_uti_q.empty()){
+      double av_uti = Local_utilization/Local_uti_q.size();
+      std::sort(Local_uti_q.begin(),Local_uti_q.end());
+      double p50 = Local_uti_q[Local_uti_q.size()*0.5];
+      double p90 = Local_uti_q[Local_uti_q.size()*0.9];
+      double p99 = Local_uti_q[Local_uti_q.size()*0.99];
+      double p999 = Local_uti_q[Local_uti_q.size()*0.999];
+      printf("///Local uti: av = %lf,P50 = %lf,P90 = %lf,P99 = %lf,P999 = %lf///\n",av_uti,p50,p90,p99,p999);
+    }
+    for(auto& item:Remote_utilization){
+      if(!Remote_uti_q[item.first].empty()){
+        double av_uti = item.second/Remote_uti_q[item.first].size();
+        std::sort(Remote_uti_q[item.first].begin(),Remote_uti_q[item.first].end());
+        double p50 = Remote_uti_q[item.first][Remote_uti_q[item.first].size()*0.5];
+        double p90 = Remote_uti_q[item.first][Remote_uti_q[item.first].size()*0.9];
+        double p99 = Remote_uti_q[item.first][Remote_uti_q[item.first].size()*0.99];
+        double p999 = Remote_uti_q[item.first][Remote_uti_q[item.first].size()*0.999];
+        printf("///Node %d uti: av = %lf,P50 = %lf,P90 = %lf,P99 = %lf,P999 = %lf///\n",item.first,av_uti,p50,p90,p99,p999);
+      }
+    }
+    printf("///MN print end///\n");
+  }
+  void MN_Initialize_threadlocal_map();
 //LZY add ^
   friend class Memory_Node_Keeper;
   friend class DBImpl;
@@ -371,6 +405,7 @@ class RDMA_Manager {
   //  RDMA_Manager()=delete;
   ~RDMA_Manager();
   // RDMA set up create all the resources, and create one query pair for RDMA send & Receive.
+  //void Server_Set_Up_Resources();//LZY add
   void Client_Set_Up_Resources();
   void Initialize_threadlocal_map();
   // Set up the socket connection to remote shared memory.
@@ -392,8 +427,8 @@ class RDMA_Manager {
   //                                   ibv_mr* local_data_mr);
 //  void client_message_polling_thread();
   void compute_message_handling_thread(std::string q_id, uint8_t shard_target_node_id);
-  void remote_cpu_util_heart_beater_receiver(RDMA_Request* request,
-                                             uint8_t target_node_id);
+  void MN_remote_cpu_util_heart_beater_receiver(RDMA_Request* request,uint8_t target_node_id);//LZY add
+  void remote_cpu_util_heart_beater_receiver(RDMA_Request* request,uint8_t target_node_id);
   void ConnectQPThroughSocket(std::string qp_type, int socket_fd,
                               uint8_t& target_node_id);
   // Local memory register will register RDMA memory in local machine,

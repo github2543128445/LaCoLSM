@@ -1,0 +1,113 @@
+[ 96%] Built target TimberSaw
+[100%] Built target Server
+[ 88%] Built target TimberSaw
+[ 91%] Built target gtest
+[ 94%] Built target gmock
+[100%] Built target db_bench
+[100%] Built target TimberSaw
+MN local CPU_utilization_heartbeat run
+searching for IB devices in host
+found 2 device(s)
+device specified, using:mlx5_1
+Max utilization is 0.419463
+SST buffer, send&receive buffer were registered with a
+maximum outstanding wr number is 32768
+maximum query pair number is 262144
+maximum completion queue number is 16777216
+maximum memory region number is 16777216
+maximum memory region size is 18446744073709551615
+checkpoint0
+Max utilization is 0.559284
+connection built up from 10.0.0.66:2204
+connection family is 2
+///communication thread 1///
+A new shared memory thread start
+checkpoint-out
+checkpoint1
+checkpoint2
+total bytes: 23
+read byte: 23
+The connected compute node's id is 3
+checkpoint3
+Max utilization is 0.838926
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+connection built up from 10.0.0.65:40116
+connection family is 2
+///communication thread 2///
+A new shared memory thread start
+checkpoint-out
+checkpoint1
+checkpoint2
+total bytes: 23
+Max utilization is 1.258389
+read byte: 23
+The connected compute node's id is 1
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+Max utilization is 1.258389
+connection built up from 10.0.0.67:44224
+connection family is 2
