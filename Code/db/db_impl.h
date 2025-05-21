@@ -313,6 +313,7 @@ class DBImpl : public DB{
   static void BGWork_Compaction(void* thread_args);
   void BackgroundCall();
   void BackgroundFlush(void* p);
+  void CompactionOrSendTask(void* p) EXCLUSIVE_LOCKS_REQUIRED(undefine_mutex);//LZY Add
   void BackgroundCompaction(void* p) EXCLUSIVE_LOCKS_REQUIRED(undefine_mutex);
   std::atomic<int> print_counter = 0;
 
@@ -340,7 +341,7 @@ class DBImpl : public DB{
       FlushJob* job, VersionSet* vset,
       std::shared_ptr<RemoteMemTableMetaData>& sstable, VersionEdit* edit);
 //  SuperVersion* GetReferencedSuperVersion(DBImpl* db);
-
+  void SendCompactionTask(Compaction*c);
   void NearDataCompaction(Compaction* c);
 //  void Communication_To_Home_Node();
   void Edit_sync_to_remote(VersionEdit* edit, uint8_t target_node_id);

@@ -170,6 +170,7 @@ class Memory_Node_Keeper {
   ThreadPool Compactor_pool_;
   ThreadPool Message_handler_pool_;
   ThreadPool Persistency_bg_pool_;
+  ThreadPool offloader_pool_; //LZY add, 接收Compaction task, 进行调度.(目前将所有Compactor_pool_设置线程的地方都设置了)
   std::mutex versionset_mtx;
   VersionSet* versions_;
   VersionEdit_Merger ve_merger;

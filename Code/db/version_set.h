@@ -608,7 +608,7 @@ class Compaction {
   const Options* opt_ptr;
   uint64_t max_output_file_size_;
   Version* input_version_;
-  VersionEdit edit_;
+  VersionEdit edit_; //LZY: 应该是记录了Comapction需要的元数据
 
   // Each compaction reads mem_vec from "level_" and "level_+1"
 
@@ -697,12 +697,9 @@ struct CompactionState {
 
   CompactionOutput* current_output() { return &outputs[outputs.size() - 1]; }
 
-  explicit CompactionState(Compaction* c)
-  : compaction(c),
-  smallest_snapshot(0),
-  //        outfile(nullptr),
-  builder(nullptr),
-  total_bytes(0) {}
+  explicit CompactionState(Compaction* c):compaction(c), smallest_snapshot(0),builder(nullptr),total_bytes(0)
+  //        ,outfile(nullptr),
+  {}
 
   std::vector<SubcompactionState> sub_compact_states;
   Compaction* const compaction;

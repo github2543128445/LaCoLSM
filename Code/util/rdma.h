@@ -131,7 +131,9 @@ enum RDMA_Command_Type {
   retrieve_log_serialized_data,
   request_cpu_utilization,
   create_cpu_refresher,
-  cpu_utilization_heartbeat
+  cpu_utilization_heartbeat, //LZY add
+  compaction_task, //LZY add
+  do_compaction, //LZY add
 };
 enum file_type { log_type, others };
 struct fs_sync_command {

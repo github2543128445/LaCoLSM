@@ -74,6 +74,7 @@ TimberSaw::Memory_Node_Keeper::Memory_Node_Keeper(bool use_sub_compaction,
 #else
     Compactor_pool_.SetBackgroundThreads(opts->max_memory_compactions);
 #endif
+    offloader_pool_.SetBackgroundThreads(4);
     Message_handler_pool_.SetBackgroundThreads(4);//LZY change
     Persistency_bg_pool_.SetBackgroundThreads(1);
 
@@ -124,6 +125,7 @@ TimberSaw::Memory_Node_Keeper::Memory_Node_Keeper(bool use_sub_compaction,
   void Memory_Node_Keeper::SetBackgroundThreads(int num, ThreadPoolType type) {
     //printf("///now Compaction %d///\n\n",num);
     Compactor_pool_.SetBackgroundThreads(num);
+    offloader_pool_.SetBackgroundThreads(4);
   }
 //  void Memory_Node_Keeper::MaybeScheduleCompaction(std::string& client_ip) {
 //    if (versions_->NeedsCompaction()) {
@@ -1522,7 +1524,7 @@ Status Memory_Node_Keeper::InstallCompactionResultsToComputePreparation(
 
         install_version_edit_handler(receive_msg_buf, client_ip,
                                      compute_node_id);
-      } else if (receive_msg_buf->command == near_data_compaction) {
+      } else if (receive_msg_buf->command == near_data_compaction) { //指明由MN进行Compaction
         rdma_mg->post_receive<RDMA_Request>(&recv_mr[buffer_position],
                                             compute_node_id,
                                             client_ip);  //注释掉也能跑，性能指标也正常，你在接收什么？ 但RDMA的Receive多于Send好像不会导致运行逻辑上的问题-LZY
@@ -1531,6 +1533,10 @@ Status Memory_Node_Keeper::InstallCompactionResultsToComputePreparation(
         BGThreadMetadata* thread_pool_args = new BGThreadMetadata{.db = this, .func_args = argforhandler};
         Compactor_pool_.Schedule(&Memory_Node_Keeper::RPC_Compaction_Dispatch, thread_pool_args); //将RPC_Compaction_Dispatch函数加入Compactor的线程池
 //        sst_compaction_handler(nullptr);
+      } else if (receive_msg_buf->command == compaction_task){ //LZY add 收到compaction 任务,进行调度
+        
+      } else if (receive_msg_buf->command == do_compaction){ //LZY add 执行Compaction
+        
       } else if (receive_msg_buf->command == create_cpu_refresher) {//废案, 实际上无人发送
         // receive a new remote cpu keeper request from compute node
         rdma_mg->post_receive<RDMA_Request>(&recv_mr[buffer_position],
@@ -2107,7 +2113,7 @@ int Memory_Node_Keeper::server_sock_connect(const char* servername, int port) {
       delete (Arg_for_handler*)arg;
   }
 
-  void Memory_Node_Keeper::sst_compaction_handler(void* arg) {
+  void Memory_Node_Keeper::sst_compaction_handler(void* arg) { //LZY: 解析request, 进入compaction
 
     RDMA_Request* request = ((Arg_for_handler*) arg)->request;
     std::string client_ip = ((Arg_for_handler*) arg)->client_ip;
@@ -2126,7 +2132,7 @@ int Memory_Node_Keeper::server_sock_connect(const char* servername, int port) {
     rdma_mg->Allocate_Local_RDMA_Slot(large_recv_mr, Version_edit);
     rdma_mg->Allocate_Local_RDMA_Slot(large_send_mr, Version_edit);
     assert(request->content.sstCompact.buffer_size < large_recv_mr.length);
-#ifdef WITHPERSISTENCE
+    #ifdef WITHPERSISTENCE
     RDMA_Reply* send_pointer = (RDMA_Reply*)send_mr.addr;
 //    send_pointer->content. = {};
     // set up the communication buffer information.
@@ -2197,11 +2203,11 @@ int Memory_Node_Keeper::server_sock_connect(const char* servername, int port) {
 
     CompactionState* compact = new CompactionState(&c);
     //LZY change v
-#if NEARDATACOMPACTION==2        // Only when there is enough input level files and output level files will the subcompaction triggered
+    #if NEARDATACOMPACTION==2        // Only when there is enough input level files and output level files will the subcompaction triggered
     if (usesubcompaction && c.num_input_files(0)>=opts->input0_subcompaction_thr && c.num_input_files(1)>=opts->input1_subcompaction_thr){   
-#else
+    #else
     if (usesubcompaction && c.num_input_files(0)>=4 && c.num_input_files(1)>=2){ 
-#endif
+    #endif
 //    if (usesubcompaction && c.num_input_files(1)>1){
 //      test_compaction_mutex.lock();
       status = DoCompactionWorkWithSubcompaction(compact, client_ip);//返回
@@ -2409,6 +2415,7 @@ int Memory_Node_Keeper::server_sock_connect(const char* servername, int port) {
     opts->filter_policy = new InternalFilterPolicy(NewBloomFilterPolicy(opts->bloom_bits));
     opts->comparator = &internal_comparator_;
     Compactor_pool_.SetBackgroundThreads(opts->max_memory_compactions);
+    offloader_pool_.SetBackgroundThreads(4);
     printf("Option sync finished\n");
     delete request;
   }
