@@ -201,8 +201,9 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
   printf("DBImpl start\n");
 #ifdef WITHPERSISTENCE
   env_->rdma_mg->Set_DB_handler(this);
+  
 #endif
-
+printf("DB Impl1: cp1\n");
 //  for(auto iter : options_.ShardInfo){
 //    versions_pool.insert({iter.first,
 //         new VersionSet(dbname_, &options_, table_cache_, &internal_comparator_,
@@ -221,7 +222,9 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
     //TODO: Make client handling thread only 1 per compute node-memory node connection.
 //    main_comm_threads.emplace_back(
 //        &DBImpl::client_message_polling_and_handling_thread, this, "main");
-    while(rdma_mg->RPC_handler_thread_ready_num.load() != rdma_mg->memory_nodes.size());
+  printf("DB Impl1: rdma_mg->RPC_handler_thread_ready_num = %d \n",rdma_mg->RPC_handler_thread_ready_num.load());
+  while(rdma_mg->RPC_handler_thread_ready_num.load() != rdma_mg->memory_nodes.size()+ rdma_mg->compute_nodes.size()-1);
+  printf("DB Impl1: cp3\n");
 
     if (RDMA_Manager::node_id == 1){
       // every memory ndoe only get synced option one time from compute node 1
@@ -334,7 +337,9 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname,
   //for(int i=0;i<=32;i++) sum_time[i] = 0.0,sum_time_div[i] = 0;
   //for(int i=0;i<=32;i++) compaction_speed[i] = 0.0,compaction_speed_div[i] = 0;
   std::shared_ptr<RDMA_Manager> rdma_mg = env_->rdma_mg;
-  while(rdma_mg->RPC_handler_thread_ready_num.load() != rdma_mg->memory_nodes.size());
+  printf("DB Impl1: rdma_mg->RPC_handler_thread_ready_num = %d \n",rdma_mg->RPC_handler_thread_ready_num.load());
+  while(rdma_mg->RPC_handler_thread_ready_num.load() != rdma_mg->memory_nodes.size()+ rdma_mg->compute_nodes.size()-1);
+  printf("DB Impl1: cp1\n");
 
   if (RDMA_Manager::node_id == 1){
       // every memory ndoe only get synced option one time from compute node 1
@@ -2722,7 +2727,7 @@ void DBImpl::remote_qp_reset(std::string& qp_type, uint8_t target_node_id) {
   rdma_mg->Deallocate_Local_RDMA_Slot(send_mr.addr,Message);
 }
 void DBImpl::client_message_polling_and_handling_thread(std::string q_id) {
-
+    printf("client_message_polling_and_handling_thread: q_id %s\n",q_id.c_str());
     ibv_qp* qp;
     int rc = 0;
     //NOte: Re-initialize below is very important because DBImple may be
@@ -2910,7 +2915,9 @@ void DBImpl::WaitForComputeMessageHandlingThread(uint8_t target_memory_id,
   byte_len = rdma_mg->byte_len_map.at(shard_target_node_id);
   cv_imme = rdma_mg->cv_imme_map.at(shard_target_node_id);
 
-  while(rdma_mg->RPC_handler_thread_ready_num.load() != rdma_mg->memory_nodes.size());
+  printf("WaitForComputeMessageHandlingThread: rdma_mg->RPC_handler_thread_ready_num = %d \n",rdma_mg->RPC_handler_thread_ready_num.load());
+  while(rdma_mg->RPC_handler_thread_ready_num.load() != rdma_mg->memory_nodes.size()+ rdma_mg->compute_nodes.size()-1);
+  printf("WaitForComputeMessageHandlingThread: cp1\n");
 
   if (RDMA_Manager::node_id == 1 && shard_id == 0){
     // every memory ndoe only get synced option one time from compute node 1

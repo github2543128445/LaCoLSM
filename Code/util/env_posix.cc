@@ -30,6 +30,7 @@ PosixEnv::PosixEnv()
       1, /* gid_idx */
       4*10*1024*1024 /*initial local buffer size*/
   };
+  printf("PosixEnv: create begin\n");
   size_t remote_block_size = RDMA_WRITE_BLOCK;
   //Initialize the rdma manager, the remote block size will be configured in the beggining.
   // remote block size will always be the same.
@@ -40,10 +41,11 @@ PosixEnv::PosixEnv()
 
   //client will try to connect to the remote memory, now there is only one remote memory.
   rdma_mg->Client_Set_Up_Resources();
+  printf("PosixEnv: create done\n");
 
 
 
-      }
+  }
 
 void PosixEnv::Schedule(
     void (*background_work_function)(void* background_work_arg),

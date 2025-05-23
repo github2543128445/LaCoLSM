@@ -248,7 +248,7 @@ double Resource_Printer_PlanB::getCurrentValue() {//LZY:所有CPU核加起来，
 #ifdef CALCULATE_MAX_UTIL
     if (max_util < percent){
       max_util = static_cast<double>(percent);
-      printf("Max utilization is %f\n", max_util);
+      //printf("Max utilization is %f\n", max_util); LZY delete
     }
     // FILE* fp = fopen("/proc/self/status", "r");
     // char line[128];

@@ -37,7 +37,7 @@ class Resource_Printer_PlanB {
   Resource_Printer_PlanB();
   ~Resource_Printer_PlanB(){
 #ifdef CALCULATE_MAX_UTIL
-    printf("Max utilization is %f\n", max_util);
+    //printf("Max utilization is %f\n", max_util); LZY delete
 #endif
   }
   void paramInit();

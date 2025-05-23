@@ -269,6 +269,7 @@ bool RDMA_Manager::poll_reply_buffer(RDMA_Reply* rdma_reply) {
 *
 ******************************************************************************/
 int RDMA_Manager::client_sock_connect(const char* servername, int port) {
+  printf("client_sock_connect : servername %s, port %d\n",servername, port);
   struct addrinfo* resolved_addr = NULL;
   struct addrinfo* iterator;
   char service[6];
@@ -301,7 +302,6 @@ int RDMA_Manager::client_sock_connect(const char* servername, int port) {
         printf("Success to connect to %s\n", servername);
       } else {
         assert(false);
-
       }
     }
 
@@ -583,7 +583,7 @@ sock_connect_exit:
 //  // TODO: Build up a exit method for shared memory side, don't forget to destroy all the RDMA resourses.
 //}
 void RDMA_Manager::compute_message_handling_thread(std::string q_id, uint8_t shard_target_node_id) {
-
+  printf("compute_message_handling_thread: qid = %s\n",q_id.c_str());
   ibv_qp* qp;
   int rc = 0;
 
@@ -618,13 +618,14 @@ void RDMA_Manager::compute_message_handling_thread(std::string q_id, uint8_t sha
 //  }
   printf("client handling thread\n");
 
-
   std::mutex* mtx_imme = mtx_imme_map.at(shard_target_node_id);
   std::atomic<uint32_t>* imm_gen = imm_gen_map.at(shard_target_node_id);
   uint32_t* imme_data = imme_data_map.at(shard_target_node_id);
   assert(*imme_data == 0);
   uint32_t* byte_len = byte_len_map.at(shard_target_node_id);
   std::condition_variable* cv_imme = cv_imme_map.at(shard_target_node_id);
+  printf("All about node %d done\n", shard_target_node_id);
+  usleep(10000);// 等待qp建立完成
   while (1) {
     // we can only use try_poll... rather than poll_com.. because we need to
     // make sure the shutting down signal can work.
@@ -738,21 +739,21 @@ void RDMA_Manager::remote_cpu_util_heart_beater_receiver(RDMA_Request* request, 
   MN_utilization_div++;
   MN_uti_append(request->content.cpu_info.cpu_util);
 //  remote_compaction_issued.at(target_node_id_)->store(false);
-  DEBUG_arg("Recieve the cpu utilization %f\n", request->content.cpu_info.cpu_util);
+  //DEBUG_arg("Recieve the cpu utilization %f\n", request->content.cpu_info.cpu_util);
   delete request;
 
 }
 void RDMA_Manager::ConnectQPThroughSocket(std::string qp_type, int socket_fd,
                                           uint8_t& target_node_id) {
-
+                                            
   struct registered_qp_config local_con_data;
   struct registered_qp_config* remote_con_data = new registered_qp_config();
   struct registered_qp_config tmp_con_data;
   //  std::string qp_id = "main";
-
+  
 
   /* exchange using TCP sockets info required to connect QPs */
-  printf("checkpoint1\n");
+  printf("ConnectQPThroughSocket : checkpoint1\n");
 
 
     bool seperated_cq = true;
@@ -796,7 +797,7 @@ void RDMA_Manager::ConnectQPThroughSocket(std::string qp_type, int socket_fd,
   local_con_data.qp_num = htonl(qp->qp_num);
   local_con_data.lid = htons(res->port_attr.lid);
   memcpy(local_con_data.gid, &res->my_gid, 16);
-  printf("checkpoint2\n");
+  printf("ConnectQPThroughSocket: checkpoint2\n");
 
   //fprintf(stdout, "Local LID = 0x%x\n", res->port_attr.lid); LZY
 
@@ -811,8 +812,11 @@ void RDMA_Manager::ConnectQPThroughSocket(std::string qp_type, int socket_fd,
   //fprintf(stdout, "Remote LID = 0x%x\n", remote_con_data->lid); LZY
   remote_con_data->node_id = tmp_con_data.node_id;
   target_node_id = tmp_con_data.node_id;
+  printf("ConnectQPThroughSocket : qp_type %s, socket_fd %d, target_node_id %d\n", qp_type.c_str(),socket_fd,target_node_id);
   std::unique_lock<std::shared_mutex> l(qp_cq_map_mutex);
+  printf("ConnectQPThroughSocket: checkpoint3\n");
   res->qp_map[target_node_id] = qp;
+  printf("ConnectQPThroughSocket: cq_map.insert[%d]\n",target_node_id);
   res->cq_map.insert({target_node_id, std::make_pair(cq1, cq2)});
   assert(qp_type != "read_local");
   assert(qp_type != "write_local_compact");
@@ -827,12 +831,13 @@ void RDMA_Manager::ConnectQPThroughSocket(std::string qp_type, int socket_fd,
 //    ((QP_Info_Map*)local_write_flush_qp_info->Get())->insert({shard_target_node_id, remote_con_data});
 ////    local_write_flush_qp_info->Reset_Buffer(remote_con_data);
 //  else
-    res->qp_main_connection_info.insert({target_node_id,remote_con_data});
+  res->qp_main_connection_info.insert({target_node_id,remote_con_data});
+  printf("ConnectQPThroughSocket: checkpoint4\n");
   l.unlock();
   if (connect_qp(qp, qp_type, target_node_id)) {
     fprintf(stderr, "failed to connect QPs\n");
   }
-
+  printf("ConnectQPThroughSocket: done\n");
 }
 //    Register the memory through ibv_reg_mr on the local side. this function will be called by both of the server side and client side.
 bool RDMA_Manager::Local_Memory_Register(char** p2buffpointer,
@@ -1110,7 +1115,7 @@ void RDMA_Manager::Client_Set_Up_Resources() {
     return;
   }
   std::vector<std::thread> threads;
-  for(int i = 0; i < memory_nodes.size(); i++){
+  for(int i = 0; i < memory_nodes.size(); i++){ //建立对内存节点的所有连接
     uint8_t target_node_id =  2*i;
     res->sock_map[target_node_id] =
         client_sock_connect(memory_nodes[target_node_id].c_str(), rdma_config.tcp_port);
@@ -1120,22 +1125,177 @@ void RDMA_Manager::Client_Set_Up_Resources() {
               "failed to establish TCP connection to server %s, port %d\n",
               rdma_config.server_name, rdma_config.tcp_port);
     }
-//    assert(memory_nodes.size() == 2);
-    //TODO: use mulitple thread to initialize the queue pairs.
     threads.emplace_back(&RDMA_Manager::Get_Remote_qp_Info_Then_Connect,this,target_node_id);
-//    Get_Remote_qp_Info_Then_Connect(shard_target_node_id);
+    threads.back().detach();
+  }
+  while (connection_counter.load() != memory_nodes.size());
+  printf("Client_Set_Up_Resources: cp1\n");
+
+  usleep(10000*RDMA_Manager::node_id);
+
+  for(int i = 0; i < compute_nodes.size(); i++){ //LZY add : 主动建立对node小于自己的节点的连接, 对大于自己的, 被动等待
+    uint8_t target_node_id =  2*i+1;
+    if(target_node_id >= RDMA_Manager::node_id) break;
+
+    res->sock_map[target_node_id] =
+        client_sock_connect(compute_nodes[target_node_id].c_str(), rdma_config.tcp_port+target_node_id);
+    printf("LZY try: connect to CN node id %d\n", target_node_id);
+    if (res->sock_map[target_node_id] < 0) {
+      fprintf(stderr, "failed to establish TCP connection to CN node %s, port %d\n",rdma_config.server_name, rdma_config.tcp_port+target_node_id);
+    }
+    threads.emplace_back(&RDMA_Manager::Get_Remote_qp_Info_Then_Connect,this,target_node_id);
     threads.back().detach();
   }
 
-  while (connection_counter.load() != memory_nodes.size());
-  // Start to regularly update the local CPU utilization
-//  if (RPC_handler_thread_ready_num.load() == memory_nodes.size()){
+  if(RDMA_Manager::node_id != compute_nodes.size()*2 - 1){
+    printf("Client_Set_Up_Resources: cp2\n");
+    int rc;
+    if (rdma_config.gid_idx >= 0) {
+      rc = ibv_query_gid(res->ib_ctx, rdma_config.ib_port,
+                         rdma_config.gid_idx,
+                         &(res->my_gid));
+      if (rc) {
+        fprintf(stderr, "CN : could not get gid for port %d, index %d\n",
+                rdma_config.ib_port,rdma_config.gid_idx);
+        return;
+      }
+    } else memset(&(res->my_gid), 0, sizeof res->my_gid);
+    
+    threads.emplace_back(&RDMA_Manager::wait_sock_connect,this,rdma_config.server_name,rdma_config.tcp_port+RDMA_Manager::node_id);
+    threads.back().detach();
 
-//  }
-//  for (auto & thread : threads) {
-//    thread.join();
-//  }
+    printf("Client_Set_Up_Resources: cp3\n");
+    while (connection_counter.load() != memory_nodes.size()+compute_nodes.size()-1){
+      printf("connection_counter.load() = %d\n",connection_counter.load() );
+      usleep(20);
+    }
+  }
+  printf("Client_Set_Up_Resources: done\n");
 }
+int RDMA_Manager::wait_sock_connect(const char* servername, int port){//LZY add 等待比自己大的节点连接, 连接后分离出监听线程
+  printf("wait_sock_connect : servername %s, port %d\n",servername,port);
+  struct addrinfo* resolved_addr = NULL;
+  struct addrinfo* iterator;
+  char service[6];
+  int sockfd = -1;
+  int listenfd = 0;
+  struct sockaddr address;
+  socklen_t len = sizeof(struct sockaddr);
+  struct addrinfo hints = {
+      .ai_flags = AI_PASSIVE, .ai_family = AF_INET, .ai_socktype = SOCK_STREAM};
+  if (sprintf(service, "%d", port) < 0) goto sock_connect_exit;
+  /* Resolve DNS address, use sockfd as temp storage */
+  sockfd = getaddrinfo(servername, service, &hints, &resolved_addr);
+  if (sockfd < 0) {
+    fprintf(stderr, "%s for %s:%d\n", gai_strerror(sockfd), servername, port);
+    goto sock_connect_exit;
+  }
+
+  /* Search through results and find the one we want */
+  for (iterator = resolved_addr; iterator; iterator = iterator->ai_next) {
+    sockfd = socket(iterator->ai_family, iterator->ai_socktype,
+                    iterator->ai_protocol);
+    int option = 1;
+    setsockopt(sockfd,SOL_SOCKET,SO_REUSEADDR,&option,sizeof(int));
+    if (sockfd >= 0) {
+      /* Server mode. Set up listening socket an accept a connection */
+      listenfd = sockfd;
+      sockfd = -1;
+      if (bind(listenfd, iterator->ai_addr, iterator->ai_addrlen))
+        goto sock_connect_exit;
+      listen(listenfd, 20);
+      while (1) {
+        sockfd = accept(listenfd, &address, &len);
+        std::string client_id =
+            std::string(
+                inet_ntoa(((struct sockaddr_in*)(&address))->sin_addr)) +
+                    ":"+
+                      std::to_string(((struct sockaddr_in*)(&address))->sin_port);
+        // Client id must be composed of ip address and port number.
+        std::cout << "CN: connection built up from " << client_id << std::endl;
+        std::cout << "connection family is " << address.sa_family << std::endl;
+        if (sockfd < 0) {
+          fprintf(stderr, "CN :Connection accept error, erron: %d\n", errno);
+          break;
+        }
+        std::vector<std::thread> threads;
+        threads.emplace_back([this](std::string client_ip, int socketfd) {this->passive_communication_thread(client_ip, socketfd);},
+              std::string(address.sa_data), sockfd);
+        threads.back().detach();
+        // No need to detach, because the main_comm_threads will not be destroyed.
+        // main_comm_threads.back().detach();
+      }
+      usleep(1000);
+    }
+    
+  }
+  sock_connect_exit:
+  if (listenfd) close(listenfd);
+  if (resolved_addr) freeaddrinfo(resolved_addr);
+  if (sockfd < 0) {
+    if (servername)
+      fprintf(stderr, "wait_sock_connect :Couldn't connect to %s:%d\n", servername, port);
+    else {
+      perror("wait_sock_connect: server accept");
+      fprintf(stderr, "wait_sock_connect: accept() failed\n");
+    }
+  }
+  printf("wait_sock_connect : done\n");
+  return sockfd;
+  
+}
+void RDMA_Manager::passive_communication_thread(std::string client_ip, int socket_fd) { 
+    static int tnum = 0;
+    printf("///CN passiive communication thread %d///\n",++tnum);
+    char temp_receive[2];
+    char temp_send[] = "Q";
+    int rc = 0;
+    uint8_t compute_node_id;
+    ConnectQPThroughSocket(client_ip, socket_fd, compute_node_id);
+
+    printf("The connected compute node's id is %d\n", compute_node_id);
+    res->sock_map.insert({compute_node_id, socket_fd});
+
+    //    int buffer_number = 32;
+    ibv_mr recv_mr[R_SIZE] = {};
+    for(int i = 0; i<R_SIZE; i++){
+      Allocate_Local_RDMA_Slot(recv_mr[i], Message);
+    }
+
+
+    printf("passive_communication_thread :checkpoint3\n");
+    for(int i = 0; i<R_SIZE; i++) {
+      post_receive<RDMA_Request>(&recv_mr[i], compute_node_id, client_ip);
+    }
+    //    rdma_mg_->post_receive(recv_mr, client_ip, sizeof(Computing_to_memory_msg));
+    // sync after send & recv buffer creation and receive request posting.
+    local_mem_pool.reserve(100);
+    if (sock_sync_data(socket_fd, 1, temp_send,temp_receive)) /* just send a dummy char back and forth */
+    {
+      fprintf(stderr, "sync error after QPs are were moved to RTS\n");
+      rc = 1;
+    }
+
+    ibv_wc wc[3] = {};
+    connection_counter.fetch_add(1);
+    printf("passive_communication_thread : connection_counter: %d\n",connection_counter.load());
+    //    std::thread* thread_sync;
+    // printf("passive_communication_thread : checkpoint4\n");
+
+    // if ((connection_counter.load() == compute_nodes.size()+memory_nodes.size()-1) && node_id == 1){ //同步唤醒?
+    //   printf("passive_communication_thread : try sync_with_computes_Cside\n");
+    //   std::thread thread_sync(&RDMA_Manager::sync_with_computes_Cside,this);
+    //   //Need to be detached.
+    //   thread_sync.detach();
+    //   printf("passive_communication_thread : done sync_with_computes_Cside\n");
+    // }
+
+    if (connection_counter.load() == compute_nodes.size()+memory_nodes.size()-1){
+      CN_create_cpu_util_heart_beater_sender();
+    }
+    compute_message_handling_thread("main", compute_node_id);
+    // TODO: Build up a exit method for shared memory side, don't forget to destroy all the RDMA resourses.
+  }
 void RDMA_Manager::Initialize_threadlocal_map(){
   Remote_Mem_Bitmap.insert({FlushBuffer, new std::map<uint8_t, std::map<void*, In_Use_Array*>*>});
   Remote_Mem_Bitmap.insert({FilterChunk, new std::map<uint8_t, std::map<void*, In_Use_Array*>*>});
@@ -1184,8 +1344,41 @@ void RDMA_Manager::Initialize_threadlocal_map(){
     server_cpu_percent.insert({target_node_id, new std::atomic<double>(0)});
 //    remote_compaction_issued.insert({target_node_id_, new std::atomic<bool>(false)});
   }
+  for (int i = 0; i < compute_nodes.size(); ++i) {
+    target_node_id = 2*i+1;
+    if(target_node_id == RDMA_Manager::node_id) continue;
+    qp_local_write_flush.insert({target_node_id,new ThreadLocalPtr(&UnrefHandle_qp)});
+    cq_local_write_flush.insert({target_node_id, new ThreadLocalPtr(&UnrefHandle_cq)});
+    local_write_flush_qp_info.insert({target_node_id, new ThreadLocalPtr(&General_Destroy<registered_qp_config*>)});
+    qp_local_write_compact.insert({target_node_id,new ThreadLocalPtr(&UnrefHandle_qp)});
+    cq_local_write_compact.insert({target_node_id, new ThreadLocalPtr(&UnrefHandle_cq)});
+    local_write_compact_qp_info.insert({target_node_id, new ThreadLocalPtr(&General_Destroy<registered_qp_config*>)});
+    qp_local_read.insert({target_node_id, new ThreadLocalPtr(&UnrefHandle_qp)});
+    cq_local_read.insert({target_node_id, new ThreadLocalPtr(&UnrefHandle_cq)});
+    local_read_qp_info.insert({target_node_id, new ThreadLocalPtr(&General_Destroy<registered_qp_config*>)});
+    Remote_Mem_Bitmap.at(FlushBuffer)->insert({target_node_id, new std::map<void*, In_Use_Array*>()});
+    Remote_Mem_Bitmap.at(FilterChunk)->insert({target_node_id, new std::map<void*, In_Use_Array*>()});
 
-
+    deallocation_buffers.at(FlushBuffer)->insert({target_node_id, new uint64_t[REMOTE_DEALLOC_BUFF_SIZE / sizeof(uint64_t)]});
+    dealloc_mtx.at(FlushBuffer)->insert({target_node_id, new std::mutex});
+    dealloc_cv.at(FlushBuffer)->insert({target_node_id, new std::condition_variable});
+    dealloc_mr.at(FlushBuffer)->insert({target_node_id, nullptr});
+    top.at(FlushBuffer)->insert({target_node_id,0});
+    deallocation_buffers.at(FilterChunk)->insert({target_node_id, new uint64_t[REMOTE_DEALLOC_BUFF_SIZE / sizeof(uint64_t)]});
+    dealloc_mtx.at(FilterChunk)->insert({target_node_id, new std::mutex});
+    dealloc_cv.at(FilterChunk)->insert({target_node_id, new std::condition_variable});
+    dealloc_mr.at(FilterChunk)->insert({target_node_id, nullptr});
+    top.at(FilterChunk)->insert({target_node_id,0});
+//    top.insert({target_node_id_,0});
+    mtx_imme_map.insert({target_node_id, new std::mutex});
+    imm_gen_map.insert({target_node_id, new std::atomic<uint32_t>{0}});
+    imme_data_map.insert({target_node_id, new  uint32_t{0}});
+    byte_len_map.insert({target_node_id, new  uint32_t{0}});
+    cv_imme_map.insert({target_node_id, new std::condition_variable});
+    server_cpu_percent.insert({target_node_id, new std::atomic<double>(0)});
+//    remote_compaction_issued.insert({target_node_id_, new std::atomic<bool>(false)});
+  }
+  printf("Initialize_threadlocal_map: done\n");
 }
 /******************************************************************************
 * Function: resources_create
@@ -1326,6 +1519,7 @@ int RDMA_Manager::resources_create() {
 
 bool RDMA_Manager::Get_Remote_qp_Info_Then_Connect(uint8_t target_node_id) {
   //  Connect Queue Pair through TCPIP
+  printf("Get_Remote_qp_Info_Then_Connect : %d\n",target_node_id);
   int rc = 0;
   struct registered_qp_config local_con_data;
   struct registered_qp_config* remote_con_data = new registered_qp_config();
@@ -1406,6 +1600,7 @@ bool RDMA_Manager::Get_Remote_qp_Info_Then_Connect(uint8_t target_node_id) {
   //    return false;
   //  }
   connection_counter.fetch_add(1);
+  printf("Get_Remote_qp_Info_Then_Connect: connection_counter: %d\n",connection_counter.load());
   compute_message_handling_thread(qp_type, target_node_id);
   return false;
 }
@@ -1479,8 +1674,6 @@ void RDMA_Manager::sync_with_computes_Mside() {
     }
 
   }
-
-
 }
 void RDMA_Manager::broadcast_to_computes(){
   int rc = 0;
@@ -1579,10 +1772,15 @@ ibv_qp* RDMA_Manager::create_qp(uint8_t target_node_id, bool seperated_cq,
     cq_local_write_flush[target_node_id]->Reset(cq1);
     }
 //    ((CQ_Map*)cq_local_write_flush->Get())->insert({shard_target_node_id, cq1});
-  else if (seperated_cq)
+  else if (seperated_cq){
+    printf("create_qp : cq_map.insert[%d]\n",target_node_id);
     res->cq_map.insert({target_node_id, std::make_pair(cq1, cq2)});
-  else
+  }
+  else{
+    printf("create_qp : cq_map.insert[%d]\n",target_node_id);
     res->cq_map.insert({target_node_id, std::make_pair(cq1, nullptr)});
+  }
+    
 
   /* create the Queue Pair */
   memset(&qp_init_attr, 0, sizeof(qp_init_attr));
@@ -1720,10 +1918,10 @@ int RDMA_Manager::connect_qp(ibv_qp* qp, std::string& qp_type,
 //    assert(qp!= nullptr);
 //  }
 // protect the res->qp_main_connection_info outside this function
-
+  printf("connect_qp : qp_type %s , target_node_id %d\n",qp_type.c_str(),target_node_id);
   registered_qp_config* remote_con_data;
   std::shared_lock<std::shared_mutex> l(qp_cq_map_mutex);
-
+  printf("connect_qp : cp1\n");
   if (qp_type == "read_local" )
     remote_con_data = (registered_qp_config*)local_read_qp_info[target_node_id]->Get();
 
@@ -1736,7 +1934,9 @@ int RDMA_Manager::connect_qp(ibv_qp* qp, std::string& qp_type,
 //    remote_con_data = ((QP_Info_Map*)local_write_flush_qp_info->Get())->at(shard_target_node_id);
   else
     remote_con_data = res->qp_main_connection_info.at(target_node_id);
+  printf("connect_qp : cp2\n");
   l.unlock();
+  
   if (rdma_config.gid_idx >= 0) {
     uint8_t* p = remote_con_data->gid;
     // fprintf(stdout,
@@ -1751,7 +1951,7 @@ int RDMA_Manager::connect_qp(ibv_qp* qp, std::string& qp_type,
     fprintf(stderr, "change QP state to INIT failed\n");
     goto connect_qp_exit;
   }
-
+  printf("connect_qp : cp3\n");
   /* modify the QP to RTR */
   rc = modify_qp_to_rtr(qp, remote_con_data->qp_num, remote_con_data->lid,
                         remote_con_data->gid);
@@ -1764,6 +1964,7 @@ int RDMA_Manager::connect_qp(ibv_qp* qp, std::string& qp_type,
     fprintf(stderr, "failed to modify QP state to RTS\n");
     goto connect_qp_exit;
   }
+  printf("connect_qp : cp4\n");
 //  else{
 //    printf("connection built up!\n");
 //  }
@@ -2735,6 +2936,7 @@ int RDMA_Manager::poll_completion(ibv_wc* wc_p, int num_entries,
   // unsigned long start_time_msec;
   // unsigned long cur_time_msec;
   // struct timeval cur_time;
+  //printf("poll_completion : qp_type: %s, target_node_id: %d\n",qp_type.c_str(),target_node_id);
   int poll_result;
   int poll_num = 0;
   int rc = 0;
@@ -2760,6 +2962,7 @@ int RDMA_Manager::poll_completion(ibv_wc* wc_p, int num_entries,
   }
   else{
 //    assert(res->cq_map.contains());
+    
     if (send_cq)
       cq = res->cq_map.at(target_node_id).first;
     else
@@ -2810,6 +3013,8 @@ int RDMA_Manager::try_poll_completions(ibv_wc* wc_p,
                                                    std::string& qp_type,
                                                    bool send_cq,
                                                    uint8_t target_node_id) {
+                                                    
+  
   int poll_result = 0;
   int poll_num = 0;
   ibv_cq* cq;
@@ -2832,13 +3037,14 @@ int RDMA_Manager::try_poll_completions(ibv_wc* wc_p,
     assert(cq != nullptr);
   }
   else{
-    if (send_cq)
-      cq = res->cq_map.at(target_node_id).first;
-    else
-      cq = res->cq_map.at(target_node_id).second;
+    auto it = res->cq_map.find(target_node_id);
+    if(it == res->cq_map.end()){ 
+      printf("try_poll_completion : NULL qp_type: %s, target_node_id: %d\n",qp_type.c_str(),target_node_id); 
+      return 0; 
+    }
+    cq = send_cq ? it->second.first : it->second.second;
     assert(cq != nullptr);
   }
-
   poll_result = ibv_poll_cq(cq, num_entries, &wc_p[poll_num]);
 #ifndef NDEBUG
   if (poll_result > 0){

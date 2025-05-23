@@ -372,6 +372,21 @@ class RDMA_Manager {
   ~RDMA_Manager();
   // RDMA set up create all the resources, and create one query pair for RDMA send & Receive.
   void Client_Set_Up_Resources();
+  void passive_communication_thread(std::string client_ip, int socket_fd) ;//LZY add
+  void CN_create_cpu_util_heart_beater_sender() { //应该不对, 之后再改
+    DEBUG("Create cpu utilization sender\n");
+
+    std::thread CPU_utilization_heartbeat([&](){
+      printf("I m fake heart beat\n");
+      while (1){ 
+        std::this_thread::sleep_for(std::chrono::milliseconds(CPU_UTILIZATION_CACULATE_INTERVAL));
+      }
+    });
+    CPU_utilization_heartbeat.detach();
+    // wait for the deepcopy
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+  }
+  int wait_sock_connect(const char* servername, int port);//LZY add
   void Initialize_threadlocal_map();
   // Set up the socket connection to remote shared memory.
   bool Get_Remote_qp_Info_Then_Connect(uint8_t target_node_id);

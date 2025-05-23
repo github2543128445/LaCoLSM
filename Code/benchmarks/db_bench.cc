@@ -647,6 +647,7 @@ class Benchmark {
         heap_counter_(0),
         count_comparator_(BytewiseComparator()),
         total_thread_count_(0) {
+    printf("Benchmark:new()\n");
     std::vector<std::string> files;
     g_env->GetChildren(FLAGS_db, &files);
     for (size_t i = 0; i < files.size(); i++) {
@@ -718,7 +719,7 @@ class Benchmark {
 
     const char* benchmarks = FLAGS_benchmarks;
 //    Validation_Write();
-    while (benchmarks != nullptr) { //会单独跑两个测试
+    while (benchmarks != nullptr) { 
 
       const char* sep = strchr(benchmarks, ',');
       Slice name;
@@ -914,7 +915,7 @@ class Benchmark {
 
   void RunBenchmark(int n, Slice name,
                     void (Benchmark::*method)(ThreadState*)) {
-//    printf("Bechmark start\n");
+    printf("RunBenchmark start\n");
     if (method == &Benchmark::WriteRandom || method == &Benchmark::WriteRandomSharded) Validation_Write(); 
     //get Validation_keys -LZY
     SharedState shared(n); //定义了锁结构
@@ -947,7 +948,7 @@ class Benchmark {
       // but reproducible when rerunning the same set of benchmarks.
       arg[i].thread = new ThreadState(i, /*seed=*/1000 + total_thread_count_); //以当前线程序号为种子
       arg[i].thread->shared = &shared;
-      printf("start front-end threads\n");
+      printf("start front-end threads %d\n",i);
       g_env->StartThread(ThreadBody, &arg[i]);  //std::thread new_thread(thread_main, thread_main_arg); new_thread.detach(); //下发Thread
     }
     std::thread* t_print = nullptr;
@@ -962,11 +963,13 @@ class Benchmark {
       shared.cv.Wait();
     }
     //sync with all the other compute nodes here
+    printf("RunBenchmark : cp1\n");
     rdma_mg->sync_with_computes_Cside();
 
     shared.start = true;
     rdma_mg->Print_Remote_CPU_RPC(0);
     shared.cv.SignalAll();
+    printf("RunBenchmark : cp2\n");
     while (shared.num_done < n) {
       shared.cv.Wait();
     }
@@ -978,7 +981,6 @@ class Benchmark {
     for (int i = 1; i < n; i++) {
       arg[0].thread->stats.Merge(arg[i].thread->stats);
     }
-
     if(db_ == nullptr) printf("!!!!db has been deleted!!!!\n");
     db_->DBreport();
     
@@ -1144,10 +1146,6 @@ class Benchmark {
         GenerateKeyFromInt(upper_bound, &key_up);
         options.ShardInfo->emplace_back(key_low,key_up);
       }
-
-
-
-
     }
 
     Status s = DB::Open(options, FLAGS_db, &db_);
@@ -1843,6 +1841,7 @@ int main(int argc, char** argv) {
   FLAGS_write_buffer_size = TimberSaw::Options().write_buffer_size;
   FLAGS_max_file_size = TimberSaw::Options().max_file_size;
   FLAGS_block_size = TimberSaw::Options().block_size;
+  printf("main: cp1\n");
 #if TABLE_STRATEGY==2
 //  FLAGS_open_files = TimberSaw::Options().max_open_files;
 #else
@@ -1850,15 +1849,16 @@ int main(int argc, char** argv) {
 #endif
   std::string default_db_path;
   TimberSaw::g_env = TimberSaw::Env::Default();
-
+  printf("main: cp2\n");
   // Choose a location for the test database if none given with --db=<path>
   if (FLAGS_db == nullptr) {
     TimberSaw::g_env->GetTestDirectory(&default_db_path);
     default_db_path += "/dbbench";
     FLAGS_db = default_db_path.c_str();
   }
-
+  printf("main: cp3\n");
   TimberSaw::Benchmark benchmark;
+  printf("main: cp4\n");
   benchmark.Run();
   return 0;
 }
