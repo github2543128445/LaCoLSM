@@ -629,8 +629,7 @@ void RDMA_Manager::compute_message_handling_thread(std::string q_id, uint8_t sha
   while (1) {
     // we can only use try_poll... rather than poll_com.. because we need to
     // make sure the shutting down signal can work.
-    if(try_poll_completions(wc, 1, q_id, false,
-                                      shard_target_node_id) >0){
+    if(try_poll_completions(wc, 1, q_id, false,shard_target_node_id) >0){
       if(wc[0].wc_flags & IBV_WC_WITH_IMM){
         wc[0].imm_data;// use this to find the correct condition variable.
         std::unique_lock<std::mutex> lck(*mtx_imme);
@@ -662,7 +661,11 @@ void RDMA_Manager::compute_message_handling_thread(std::string q_id, uint8_t sha
 
       // copy the pointer of receive buf to a new place because
       // it is the same with send buff pointer.
+      if(receive_msg_buf->command == cpu_utilization_heartbeat && (shard_target_node_id == 3 || shard_target_node_id == 5)) {
+        printf("compute_message_handling_thread : get heart beat %d\n",shard_target_node_id);
+      }
       if (receive_msg_buf->command == install_version_edit) {
+        printf("compute_message_handling_thread : node %d send install_version_edit\n", shard_target_node_id);
         ((RDMA_Request*) recv_mr[buffer_counter].addr)->command = invalid_command_;
         assert(false);
         post_receive<RDMA_Request>(&recv_mr[buffer_counter],
@@ -696,9 +699,10 @@ void RDMA_Manager::compute_message_handling_thread(std::string q_id, uint8_t sha
                                    "main");
         remote_cpu_util_heart_beater_receiver(receive_msg_buf,
                                               shard_target_node_id);
-      } else {
-        printf("corrupt message from client.");
-        break;
+      } else {//一开始会瞎发东西, 不知道是啥导致的, 然后被向主的方向就断了
+        post_receive<RDMA_Request>(&recv_mr[buffer_counter], shard_target_node_id, "main");
+        // printf("corrupt message from node %d, command = %d\n",shard_target_node_id,receive_msg_buf->command); //LZY delete
+        // break;
       }
       // increase the buffer index
       if (buffer_counter== R_SIZE-1 ){
@@ -728,16 +732,17 @@ void RDMA_Manager::remote_cpu_util_heart_beater_receiver(RDMA_Request* request, 
     if (remote_core_number_map.find(target_node_id) == remote_core_number_map.end())[[unlikely]]{
       remote_core_number_map[target_node_id] = request->content.cpu_info.core_number;
     }
-    if (remote_core_number_map.size() == memory_nodes.size()){
+    if (remote_core_number_map.size() == memory_nodes.size()+compute_nodes.size()-1){
       remote_core_number_received.store(true);
     }
+  }
+  if(target_node_id == 3 || target_node_id == 5) {
+    printf("remote_cpu_util_heart_beater_receiver : get %d, util = %lf\n",target_node_id,request->content.cpu_info.cpu_util);
   }
 
 //    uint8_t check_byte = request->content.ive.check_byte;
   server_cpu_percent.at(target_node_id)->store(request->content.cpu_info.cpu_util);
-  MN_utilization+=request->content.cpu_info.cpu_util;
-  MN_utilization_div++;
-  MN_uti_append(request->content.cpu_info.cpu_util);
+  Remote_uti_append(target_node_id, request->content.cpu_info.cpu_util);
 //  remote_compaction_issued.at(target_node_id_)->store(false);
   //DEBUG_arg("Recieve the cpu utilization %f\n", request->content.cpu_info.cpu_util);
   delete request;
@@ -1063,9 +1068,7 @@ void RDMA_Manager::Client_Set_Up_Resources() {
       std::this_thread::sleep_for(std::chrono::milliseconds(CPU_UTILIZATION_CACULATE_INTERVAL));
       double temp = rpter.getCurrentValue();
       local_cpu_percent.store(temp);
-      CN_utilization+=temp;
-      CN_utilization_div++;
-      CN_uti_append(temp);
+      local_uti_append(temp);
       //local_compaction_issued.store(false);
       //LZY:不计算心跳就不加新任务？考虑删掉
 //      cac->CheckUtilizaitonOfCache()
@@ -1147,6 +1150,7 @@ void RDMA_Manager::Client_Set_Up_Resources() {
     threads.back().detach();
   }
 
+  //初始化被动连接资源
   if(RDMA_Manager::node_id != compute_nodes.size()*2 - 1){
     printf("Client_Set_Up_Resources: cp2\n");
     int rc;
@@ -1170,6 +1174,11 @@ void RDMA_Manager::Client_Set_Up_Resources() {
       usleep(20);
     }
   }
+  while (connection_counter.load() != memory_nodes.size()+compute_nodes.size()-1){
+    printf("connection_counter.load() = %d\n",connection_counter.load() );
+    usleep(20);
+  }
+  CN_create_cpu_util_heart_beater_sender();
   printf("Client_Set_Up_Resources: done\n");
 }
 int RDMA_Manager::wait_sock_connect(const char* servername, int port){//LZY add 等待比自己大的节点连接, 连接后分离出监听线程
@@ -1282,17 +1291,11 @@ void RDMA_Manager::passive_communication_thread(std::string client_ip, int socke
     //    std::thread* thread_sync;
     // printf("passive_communication_thread : checkpoint4\n");
 
-    // if ((connection_counter.load() == compute_nodes.size()+memory_nodes.size()-1) && node_id == 1){ //同步唤醒?
-    //   printf("passive_communication_thread : try sync_with_computes_Cside\n");
-    //   std::thread thread_sync(&RDMA_Manager::sync_with_computes_Cside,this);
-    //   //Need to be detached.
-    //   thread_sync.detach();
-    //   printf("passive_communication_thread : done sync_with_computes_Cside\n");
-    // }
-
-    if (connection_counter.load() == compute_nodes.size()+memory_nodes.size()-1){
-      CN_create_cpu_util_heart_beater_sender();
-    }
+    if (connection_counter.load() == memory_nodes.size() + compute_nodes.size() - 1 && RDMA_Manager::node_id == 1){
+      std::thread thread_sync(&RDMA_Manager::CN_sync_with_computes_Cside, this);
+      //Need to be detached.
+      thread_sync.detach();
+    }    
     compute_message_handling_thread("main", compute_node_id);
     // TODO: Build up a exit method for shared memory side, don't forget to destroy all the RDMA resourses.
   }
@@ -1672,13 +1675,10 @@ void RDMA_Manager::sync_with_computes_Mside() {
 
       }
     }
-
   }
 }
 void RDMA_Manager::broadcast_to_computes(){
   int rc = 0;
-  int read_bytes = 0;
-  int total_read_bytes = 0;
   char local_data[] = "Q";
   for(auto iter : res->sock_map){
     rc = write(iter.second, local_data, 1);

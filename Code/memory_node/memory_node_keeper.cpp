@@ -1533,7 +1533,7 @@ Status Memory_Node_Keeper::InstallCompactionResultsToComputePreparation(
         BGThreadMetadata* thread_pool_args = new BGThreadMetadata{.db = this, .func_args = argforhandler};
         Compactor_pool_.Schedule(&Memory_Node_Keeper::RPC_Compaction_Dispatch, thread_pool_args); //将RPC_Compaction_Dispatch函数加入Compactor的线程池
 //        sst_compaction_handler(nullptr);
-      } else if (receive_msg_buf->command == create_cpu_refresher) {
+      } else if (receive_msg_buf->command == create_cpu_refresher) {//never use
         // receive a new remote cpu keeper request from compute node
         rdma_mg->post_receive<RDMA_Request>(&recv_mr[buffer_position],
                                             compute_node_id,
@@ -1779,7 +1779,7 @@ int Memory_Node_Keeper::server_sock_connect(const char* servername, int port) {/
 
   void Memory_Node_Keeper::create_cpu_util_sender(RDMA_Request* request,
                                              std::string& client_ip,
-                                             uint8_t target_node_id){
+                                             uint8_t target_node_id){//never use
     DEBUG("Create cpu utilization sender\n");
     
     std::thread CPU_utilization_heartbeat([&](){
@@ -1814,7 +1814,7 @@ int Memory_Node_Keeper::server_sock_connect(const char* servername, int port) {/
     // wait for the deepcopy
     std::this_thread::sleep_for(std::chrono::milliseconds(1500));
   
-  }
+  }//never use
 
   void Memory_Node_Keeper::create_cpu_util_heart_beater_sender() {
     DEBUG("Create cpu utilization sender\n");

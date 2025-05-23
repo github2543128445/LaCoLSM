@@ -324,40 +324,44 @@ class RDMA_Manager {
 
  public:
 //LZY add v
-  double CN_utilization=0.0;
-  double MN_utilization=0.0;
-  int CN_utilization_div = 0;
-  int MN_utilization_div = 0;
-  std::mutex CN_uti_mtx;
-  std::deque<double> CN_uti_q;
-  std::mutex MN_uti_mtx;
-  std::deque<double> MN_uti_q;
-  void CN_uti_append(double value){
-    std::lock_guard<std::mutex> lock(CN_uti_mtx);
-    CN_uti_q.push_back(value);
+  std::map<uint8_t,double> Remote_utilization;
+  std::map<uint8_t,std::mutex> Remote_uti_mtx;
+  std::map<uint8_t,std::deque<double>> Remote_uti_q;
+  void Remote_uti_append(uint8_t id, double value){
+    std::lock_guard<std::mutex> lock(Remote_uti_mtx[id]);
+    Remote_utilization[id] += value;
+    Remote_uti_q[id].push_back(value);
   }
-  void MN_uti_append(double value){
-    std::lock_guard<std::mutex> lock(MN_uti_mtx);
-    MN_uti_q.push_back(value);
+
+  double local_utilization=0.0;
+  std::mutex local_uti_mtx;
+  std::deque<double> local_uti_q;
+  void local_uti_append(double value){
+    std::lock_guard<std::mutex> lock(local_uti_mtx);
+    local_utilization += value;
+    local_uti_q.push_back(value);
   }
+
   void print_uti(){
-    if(!CN_uti_q.empty()){
-      double av_uti = CN_utilization/CN_utilization_div;
-      std::sort(CN_uti_q.begin(),CN_uti_q.end());
-      double p50 = CN_uti_q[CN_uti_q.size()*0.5];
-      double p90 = CN_uti_q[CN_uti_q.size()*0.9];
-      double p99 = CN_uti_q[CN_uti_q.size()*0.99];
-      double p999 = CN_uti_q[CN_uti_q.size()*0.999];
-      printf("///CN uti: av = %lf,P50 = %lf,P90 = %lf,P99 = %lf,P999 = %lf///\n",av_uti,p50,p90,p99,p999);
+    for(auto& item:Remote_utilization){
+      if(!Remote_uti_q[item.first].empty()){
+        double av_uti = item.second/Remote_uti_q[item.first].size();
+        std::sort(Remote_uti_q[item.first].begin(),Remote_uti_q[item.first].end());
+        double p50 = Remote_uti_q[item.first][Remote_uti_q[item.first].size()*0.5];
+        double p90 = Remote_uti_q[item.first][Remote_uti_q[item.first].size()*0.9];
+        double p99 = Remote_uti_q[item.first][Remote_uti_q[item.first].size()*0.99];
+        double p999 = Remote_uti_q[item.first][Remote_uti_q[item.first].size()*0.999];
+        printf("///Remote Node %d uti: av = %lf,P50 = %lf,P90 = %lf,P99 = %lf,P999 = %lf///\n",item.first,av_uti,p50,p90,p99,p999);
+      }
     }
-    if(!MN_uti_q.empty()){
-      double av_uti = MN_utilization/MN_utilization_div;
-      std::sort(MN_uti_q.begin(),MN_uti_q.end());
-      double p50 = MN_uti_q[MN_uti_q.size()*0.5];
-      double p90 = MN_uti_q[MN_uti_q.size()*0.9];
-      double p99 = MN_uti_q[MN_uti_q.size()*0.99];
-      double p999 = MN_uti_q[MN_uti_q.size()*0.999];
-      printf("///MN uti: av = %lf,P50 = %lf,P90 = %lf,P99 = %lf,P999 = %lf///\n",av_uti,p50,p90,p99,p999);
+    if(!local_uti_q.empty()){
+      double av_uti = local_utilization/local_uti_q.size();
+      std::sort(local_uti_q.begin(),local_uti_q.end());
+      double p50 = local_uti_q[local_uti_q.size()*0.5];
+      double p90 = local_uti_q[local_uti_q.size()*0.9];
+      double p99 = local_uti_q[local_uti_q.size()*0.99];
+      double p999 = local_uti_q[local_uti_q.size()*0.999];
+      printf("///local uti: av = %lf,P50 = %lf,P90 = %lf,P99 = %lf,P999 = %lf///\n",av_uti,p50,p90,p99,p999);
     }
   }
 //LZY add ^
@@ -373,28 +377,114 @@ class RDMA_Manager {
   // RDMA set up create all the resources, and create one query pair for RDMA send & Receive.
   void Client_Set_Up_Resources();
   void passive_communication_thread(std::string client_ip, int socket_fd) ;//LZY add
-  void CN_create_cpu_util_heart_beater_sender() { //应该不对, 之后再改
-    DEBUG("Create cpu utilization sender\n");
-
+  void CN_create_cpu_util_heart_beater_sender() {
+    DEBUG("CN: Create cpu utilization sender\n");
     std::thread CPU_utilization_heartbeat([&](){
-      printf("I m fake heart beat\n");
-      while (1){ 
+      //backup the function arguments
+      int print_counter = 0;
+      while (1){
+        double cpu_util_percentage = rpter.getCurrentValue();
+        if (cpu_util_percentage <0){
+          continue;
+        }
+        for (auto iter : compute_nodes) {
+          if(iter.first == RDMA_Manager::node_id) continue;
+          // register the memory block from the remote memory
+          RDMA_Request* send_pointer;
+          ibv_mr send_mr = {};
+          Allocate_Local_RDMA_Slot(send_mr, Message);
+          send_pointer = (RDMA_Request*)send_mr.addr;
+          send_pointer->command = cpu_utilization_heartbeat;
+          send_pointer->content.cpu_info.cpu_util = cpu_util_percentage;
+          send_pointer->content.cpu_info.core_number = rpter.numa_bind_core_num;
+          if (print_counter++ == 200){
+            printf("Current cpu utilization is %f\n", cpu_util_percentage);
+            print_counter = 0;
+          }
+
+          printf("send heart_beat to %d, util = %lf\n", iter.first,cpu_util_percentage);
+
+          post_send<RDMA_Request>(&send_mr, iter.first, std::string("main"));
+          ibv_wc wc[2] = {};
+          printf("CPU_utilization_heartbeat: cp5\n");
+          if (poll_completion(wc, 1, std::string("main"), true, iter.first)){
+            fprintf(stderr, "failed to poll send for remote memory register\n");
+            return ;
+          }
+          if (print_counter%33 == 0){
+            printf("send heart_beat to %d done\n", iter.first);
+          }
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(CPU_UTILIZATION_CACULATE_INTERVAL));
       }
     });
     CPU_utilization_heartbeat.detach();
     // wait for the deepcopy
     std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+    DEBUG("Create cpu utilization sender\n");
   }
   int wait_sock_connect(const char* servername, int port);//LZY add
   void Initialize_threadlocal_map();
   // Set up the socket connection to remote shared memory.
   bool Get_Remote_qp_Info_Then_Connect(uint8_t target_node_id);
 
+
   //Computes node sync compute sides (block function)
   void sync_with_computes_Cside();
   ibv_mr* Get_local_read_mr();
   //Computes node sync memory sides (block function)
+  void CN_sync_with_computes_Cside(){ //感觉是完全没用的东西
+    char buffer[100];
+    int number_of_ready = 0;
+    uint64_t rc = 0;
+    printf("CN_sync_with_computes_Cside start\n");
+    int consecutive_miss_receive_data = 0;
+    while (1){
+      for(auto iter : res->sock_map){
+        rc =read(iter.second, buffer, 100);
+        if(iter.first%2==0||iter.first==RDMA_Manager::node_id) continue;
+        if(rc != 0){
+          number_of_ready++;
+          if (number_of_ready == compute_nodes.size()-1){
+            //TODO: answer back.
+            printf("compute node sync number is %d", number_of_ready );
+            int rc = 0;
+            char local_data[] = "Q";
+            for(auto iter : res->sock_map){
+              if(iter.first%2==0||iter.first==RDMA_Manager::node_id) continue;
+              rc = write(iter.second, local_data, 1);
+              assert(rc = 1);
+            }
+            number_of_ready = 0;
+          }
+          rc = 0;
+          consecutive_miss_receive_data = 0;
+        }else{
+          consecutive_miss_receive_data++;
+          if(consecutive_miss_receive_data < 256){
+            continue;
+          }
+          if(consecutive_miss_receive_data < 512){
+            usleep(16);
+  
+            continue ;
+          }
+          if(consecutive_miss_receive_data < 1024){
+            usleep(256);
+  
+            continue;
+          }else if (consecutive_miss_receive_data < 8192){
+            usleep(1024);
+            continue;
+          }else{
+  //          printf("CPU utilization is %Lf\n", rpter.getCurrentValue());
+            sleep(2);
+            continue;
+          }
+        }
+      }
+    }
+  }
   void sync_with_computes_Mside();
   void broadcast_to_computes();
   // client function to retrieve serialized data.
