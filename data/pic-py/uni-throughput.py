@@ -15,7 +15,7 @@ cn_data = pd.read_csv('../data-avg/CNuni.csv')
 mn_data = pd.read_csv('../data-avg/MNuni.csv')
 
 # 创建图表
-plt.figure(figsize=(10, 6))
+plt.figure(figsize=(8, 4))
 
 # 设置x轴为对数刻度
 plt.xscale('log', base=2)

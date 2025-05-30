@@ -592,10 +592,13 @@ void RDMA_Manager::compute_message_handling_thread(std::string q_id, uint8_t sha
   //TODO: keep the recv mr in rdma manager so that next time we restart
   // the database we can retrieve from the rdma_mg.
   if (comm_thread_recv_mrs.find(shard_target_node_id) != comm_thread_recv_mrs.end()){
+    
     recv_mr = comm_thread_recv_mrs.at(shard_target_node_id);
     buffer_counter = comm_thread_buffer.at(shard_target_node_id);
-  }else{
+    printf("compute_message_handling_thread: node %d have recv_mrs, and buffer counter = %d\n",shard_target_node_id,buffer_counter);
+  }else{//LZY: 都是这样建立的
     // Some where we need to delete the recv_mr in case of memory leak.
+    printf("compute_message_handling_thread: node %d lost recv_mrs\n",shard_target_node_id);
     recv_mr = new ibv_mr[R_SIZE]();
     for(int i = 0; i<R_SIZE; i++){
       Allocate_Local_RDMA_Slot(recv_mr[i], Message);
@@ -624,13 +627,14 @@ void RDMA_Manager::compute_message_handling_thread(std::string q_id, uint8_t sha
   assert(*imme_data == 0);
   uint32_t* byte_len = byte_len_map.at(shard_target_node_id);
   std::condition_variable* cv_imme = cv_imme_map.at(shard_target_node_id);
-  printf("All about node %d done\n", shard_target_node_id);
+  printf("positive:All about node %d done\n", shard_target_node_id);
   usleep(10000);// 等待qp建立完成
   while (1) {
     // we can only use try_poll... rather than poll_com.. because we need to
     // make sure the shutting down signal can work.
     if(try_poll_completions(wc, 1, q_id, false,shard_target_node_id) >0){
-      if(wc[0].wc_flags & IBV_WC_WITH_IMM){
+      if(wc[0].wc_flags & IBV_WC_WITH_IMM){//LZY : never happen
+        printf("compute_message_handling_thread: %d's message with IMM\n",shard_target_node_id);
         wc[0].imm_data;// use this to find the correct condition variable.
         std::unique_lock<std::mutex> lck(*mtx_imme);
         // why imme_data not zero? some other thread has overwrite this function.
@@ -654,16 +658,13 @@ void RDMA_Manager::compute_message_handling_thread(std::string q_id, uint8_t sha
           buffer_counter++;
         }
         continue;
-      }
+      }//LZY: never happen
       RDMA_Request* receive_msg_buf = new RDMA_Request();
       memcpy(receive_msg_buf, recv_mr[buffer_counter].addr, sizeof(RDMA_Request));
       //        printf("Buffer counter %d has been used!\n", buffer_counter);
 
       // copy the pointer of receive buf to a new place because
       // it is the same with send buff pointer.
-      if(receive_msg_buf->command == cpu_utilization_heartbeat && (shard_target_node_id == 3 || shard_target_node_id == 5)) {
-        printf("compute_message_handling_thread : get heart beat %d\n",shard_target_node_id);
-      }
       if (receive_msg_buf->command == install_version_edit) {
         printf("compute_message_handling_thread : node %d send install_version_edit\n", shard_target_node_id);
         ((RDMA_Request*) recv_mr[buffer_counter].addr)->command = invalid_command_;
@@ -701,7 +702,8 @@ void RDMA_Manager::compute_message_handling_thread(std::string q_id, uint8_t sha
                                               shard_target_node_id);
       } else {//一开始会瞎发东西, 不知道是啥导致的, 然后被向主的方向就断了
         post_receive<RDMA_Request>(&recv_mr[buffer_counter], shard_target_node_id, "main");
-        // printf("corrupt message from node %d, command = %d\n",shard_target_node_id,receive_msg_buf->command); //LZY delete
+        printf("compute_message_handling_thread: corrupt message from node %d, command = %d\n",shard_target_node_id,receive_msg_buf->command); //LZY delete
+        printf("but get util = %lf\n",receive_msg_buf->content.cpu_info.cpu_util);
         // break;
       }
       // increase the buffer index
@@ -736,9 +738,9 @@ void RDMA_Manager::remote_cpu_util_heart_beater_receiver(RDMA_Request* request, 
       remote_core_number_received.store(true);
     }
   }
-  if(target_node_id == 3 || target_node_id == 5) {
-    printf("remote_cpu_util_heart_beater_receiver : get %d, util = %lf\n",target_node_id,request->content.cpu_info.cpu_util);
-  }
+  // if(target_node_id == 3 || target_node_id == 5) {
+  //   printf("remote_cpu_util_heart_beater_receiver : get %d, util = %lf\n",target_node_id,request->content.cpu_info.cpu_util);
+  // }
 
 //    uint8_t check_byte = request->content.ive.check_byte;
   server_cpu_percent.at(target_node_id)->store(request->content.cpu_info.cpu_util);
@@ -1104,7 +1106,7 @@ void RDMA_Manager::Client_Set_Up_Resources() {
     connection_conf.erase(0, pos + space_delimiter.length());
     i++;
   }
-  memory_nodes.insert({2*i, connection_conf}); //按空格区分读. 插入memory node, 编号为0,2,4,6,8  也就是说,所有节点既是内存节点也是计算节点?
+  memory_nodes.insert({2*i, connection_conf}); //按空格区分读. 插入memory node, 编号为0,2,4,6,8  
   i++;
   Initialize_threadlocal_map();
 //  std::string ip_add;
@@ -1151,31 +1153,34 @@ void RDMA_Manager::Client_Set_Up_Resources() {
   }
 
   //初始化被动连接资源
+  int rc;
+  if (rdma_config.gid_idx >= 0) {
+    rc = ibv_query_gid(res->ib_ctx, rdma_config.ib_port,
+                        rdma_config.gid_idx,
+                        &(res->my_gid));
+    if (rc) {
+      fprintf(stderr, "CN : could not get gid for port %d, index %d\n",
+              rdma_config.ib_port,rdma_config.gid_idx);
+      return;
+    }
+  } else {
+    memset(&(res->my_gid), 0, sizeof res->my_gid);
+  }
+
   if(RDMA_Manager::node_id != compute_nodes.size()*2 - 1){
     printf("Client_Set_Up_Resources: cp2\n");
-    int rc;
-    if (rdma_config.gid_idx >= 0) {
-      rc = ibv_query_gid(res->ib_ctx, rdma_config.ib_port,
-                         rdma_config.gid_idx,
-                         &(res->my_gid));
-      if (rc) {
-        fprintf(stderr, "CN : could not get gid for port %d, index %d\n",
-                rdma_config.ib_port,rdma_config.gid_idx);
-        return;
-      }
-    } else memset(&(res->my_gid), 0, sizeof res->my_gid);
     
     threads.emplace_back(&RDMA_Manager::wait_sock_connect,this,rdma_config.server_name,rdma_config.tcp_port+RDMA_Manager::node_id);
     threads.back().detach();
 
     printf("Client_Set_Up_Resources: cp3\n");
     while (connection_counter.load() != memory_nodes.size()+compute_nodes.size()-1){
-      printf("connection_counter.load() = %d\n",connection_counter.load() );
+      //printf("connection_counter.load() = %d\n",connection_counter.load() );
       usleep(20);
     }
   }
   while (connection_counter.load() != memory_nodes.size()+compute_nodes.size()-1){
-    printf("connection_counter.load() = %d\n",connection_counter.load() );
+    //printf("connection_counter.load() = %d\n",connection_counter.load() );
     usleep(20);
   }
   CN_create_cpu_util_heart_beater_sender();
@@ -1279,6 +1284,12 @@ void RDMA_Manager::passive_communication_thread(std::string client_ip, int socke
     //    rdma_mg_->post_receive(recv_mr, client_ip, sizeof(Computing_to_memory_msg));
     // sync after send & recv buffer creation and receive request posting.
     local_mem_pool.reserve(100);
+    // printf("passiv_communication_thread: pre_allocated_pool.size()=%d\n",pre_allocated_pool.size()); //LZYTODO当前计算节点预留0， 不知道是否要改
+    // if(pre_allocated_pool.size() < 1)
+    // {
+    //   std::unique_lock<std::shared_mutex> lck(local_mem_mutex);
+    //   Preregister_Memory(1);
+    // }预先注册内存，CNnode之间不太需要
     if (sock_sync_data(socket_fd, 1, temp_send,temp_receive)) /* just send a dummy char back and forth */
     {
       fprintf(stderr, "sync error after QPs are were moved to RTS\n");
@@ -1296,8 +1307,65 @@ void RDMA_Manager::passive_communication_thread(std::string client_ip, int socke
       //Need to be detached.
       thread_sync.detach();
     }    
-    compute_message_handling_thread("main", compute_node_id);
-    // TODO: Build up a exit method for shared memory side, don't forget to destroy all the RDMA resourses.
+    //compute_message_handling_thread("main", compute_node_id);//LZYTODO
+    //LZY 下面是参考MN节点的实现方式， 和上面的compute_message_handling_thread二选一
+    //直接复用compute_message_handling_thread会导致小的向大的发不了
+    RPC_handler_thread_ready_num.fetch_add(1);
+    int buffer_position = 0;
+    int miss_poll_counter = 0;
+    printf("passive:All about node %d done\n", compute_node_id);
+    usleep(10000);// 等待qp建立完成
+    while (true) {//从这开始轮询等待RDMA请求 -LZY
+      ++miss_poll_counter;
+      if (try_poll_completions(wc, 1, client_ip, false, compute_node_id) == 0){ //前一个工作未完成-LZY
+        // exponetial back off to save cpu cycles.
+        if(miss_poll_counter < 256){
+          continue;
+        }
+        if(miss_poll_counter < 512){
+          usleep(16);
+          continue ;
+        }
+        if(miss_poll_counter < 1024){
+          usleep(256);
+          continue;
+        }else{
+          usleep(1024);
+          continue;
+        }
+      }
+      miss_poll_counter = 0;
+      if(wc[0].wc_flags & IBV_WC_WITH_IMM){
+        wc[0].imm_data;// use this to find the correct condition variable.
+        //cv_temp.notify_all();
+        post_receive<RDMA_Request>(&recv_mr[buffer_position],compute_node_id,"main"); //提交RDMA-receive -LZY
+        if (buffer_position == R_SIZE-1 ){ //循环利用
+          buffer_position = 0;
+        } else{
+          buffer_position++;
+        }
+        continue;
+      }
+      RDMA_Request* receive_msg_buf = new RDMA_Request();
+      *receive_msg_buf = *(RDMA_Request*)recv_mr[buffer_position].addr; 
+
+      if(receive_msg_buf->command == cpu_utilization_heartbeat){
+        post_receive<RDMA_Request>(&recv_mr[buffer_position],compute_node_id,client_ip);
+        remote_cpu_util_heart_beater_receiver(receive_msg_buf,compute_node_id);
+      } else {//一开始会瞎发东西, 不知道是啥导致的, 然后被向主的方向就断了
+        post_receive<RDMA_Request>(&recv_mr[buffer_position], compute_node_id, client_ip);
+        printf("compute_message_handling_thread: corrupt message from node %d, command = %d\n",compute_node_id,receive_msg_buf->command); //LZY delete
+        printf("but get util = %lf\n",receive_msg_buf->content.cpu_info.cpu_util);
+        // break;
+      }
+
+      if (buffer_position == R_SIZE-1 ){
+        buffer_position = 0;
+      } else{
+        buffer_position++;
+      }
+    }
+    
   }
 void RDMA_Manager::Initialize_threadlocal_map(){
   Remote_Mem_Bitmap.insert({FlushBuffer, new std::map<uint8_t, std::map<void*, In_Use_Array*>*>});
@@ -1921,7 +1989,6 @@ int RDMA_Manager::connect_qp(ibv_qp* qp, std::string& qp_type,
   printf("connect_qp : qp_type %s , target_node_id %d\n",qp_type.c_str(),target_node_id);
   registered_qp_config* remote_con_data;
   std::shared_lock<std::shared_mutex> l(qp_cq_map_mutex);
-  printf("connect_qp : cp1\n");
   if (qp_type == "read_local" )
     remote_con_data = (registered_qp_config*)local_read_qp_info[target_node_id]->Get();
 
@@ -1934,7 +2001,6 @@ int RDMA_Manager::connect_qp(ibv_qp* qp, std::string& qp_type,
 //    remote_con_data = ((QP_Info_Map*)local_write_flush_qp_info->Get())->at(shard_target_node_id);
   else
     remote_con_data = res->qp_main_connection_info.at(target_node_id);
-  printf("connect_qp : cp2\n");
   l.unlock();
   
   if (rdma_config.gid_idx >= 0) {
@@ -1951,7 +2017,6 @@ int RDMA_Manager::connect_qp(ibv_qp* qp, std::string& qp_type,
     fprintf(stderr, "change QP state to INIT failed\n");
     goto connect_qp_exit;
   }
-  printf("connect_qp : cp3\n");
   /* modify the QP to RTR */
   rc = modify_qp_to_rtr(qp, remote_con_data->qp_num, remote_con_data->lid,
                         remote_con_data->gid);
@@ -1964,7 +2029,6 @@ int RDMA_Manager::connect_qp(ibv_qp* qp, std::string& qp_type,
     fprintf(stderr, "failed to modify QP state to RTS\n");
     goto connect_qp_exit;
   }
-  printf("connect_qp : cp4\n");
 //  else{
 //    printf("connection built up!\n");
 //  }

@@ -2726,7 +2726,7 @@ void DBImpl::remote_qp_reset(std::string& qp_type, uint8_t target_node_id) {
 //  printf("polled reply buffer\n");
   rdma_mg->Deallocate_Local_RDMA_Slot(send_mr.addr,Message);
 }
-void DBImpl::client_message_polling_and_handling_thread(std::string q_id) {
+void DBImpl::client_message_polling_and_handling_thread(std::string q_id) {//弃用
     printf("client_message_polling_and_handling_thread: q_id %s\n",q_id.c_str());
     ibv_qp* qp;
     int rc = 0;

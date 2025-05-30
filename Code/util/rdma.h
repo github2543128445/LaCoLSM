@@ -398,22 +398,19 @@ class RDMA_Manager {
           send_pointer->content.cpu_info.cpu_util = cpu_util_percentage;
           send_pointer->content.cpu_info.core_number = rpter.numa_bind_core_num;
           if (print_counter++ == 200){
-            printf("Current cpu utilization is %f\n", cpu_util_percentage);
+            printf("send cpu utilization %f to %d\n", cpu_util_percentage,iter.first);
             print_counter = 0;
           }
 
-          printf("send heart_beat to %d, util = %lf\n", iter.first,cpu_util_percentage);
+          //printf("send heart_beat to %d, util = %lf\n", iter.first,cpu_util_percentage);
 
           post_send<RDMA_Request>(&send_mr, iter.first, std::string("main"));
           ibv_wc wc[2] = {};
-          printf("CPU_utilization_heartbeat: cp5\n");
           if (poll_completion(wc, 1, std::string("main"), true, iter.first)){
             fprintf(stderr, "failed to poll send for remote memory register\n");
             return ;
           }
-          if (print_counter%33 == 0){
-            printf("send heart_beat to %d done\n", iter.first);
-          }
+          //printf("send heart_beat to %d done\n", iter.first);
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(CPU_UTILIZATION_CACULATE_INTERVAL));
       }

@@ -34,7 +34,7 @@ nodes = sorted(combined_data['node'].unique())
 row_indices = range(len(combined_data) // len(nodes))
 
 # 设置图表样式
-plt.figure(figsize=(12, 6))
+plt.figure(figsize=(10, 5))
 bar_width = 0.095  # 减小柱子宽度
 group_spacing = 0.3
 

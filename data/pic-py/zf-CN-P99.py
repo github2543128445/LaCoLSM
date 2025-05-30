@@ -7,8 +7,8 @@ import os
 plt.rcParams['font.family'] = 'Liberation Serif'
 plt.rcParams['font.style'] = 'italic'
 
-# 获取所有MNzf3-1-avg.csv文件
-data_files = glob.glob('../data-node*/MNzf3-1-avg.csv')
+# 获取所有CNzf3-1-avg.csv文件
+data_files = glob.glob('../data-node*/CNzf3-1-avg.csv')
 
 # 读取并处理所有数据
 all_data = []
@@ -25,9 +25,6 @@ if not all_data:
 
 # 合并所有数据
 combined_data = pd.concat(all_data)
-
-# 将throughput转换为Mops/sec
-combined_data['throughput'] = combined_data['throughput'] / 1000000
 
 # 获取唯一的node值和行索引
 nodes = sorted(combined_data['node'].unique())
@@ -46,7 +43,7 @@ for i, node in enumerate(nodes):
     # 根据不同的node设置不同的填充样式
     if i == 0:  # node5
         plt.bar(x, 
-                node_data['throughput'],
+                node_data['CN P99'],
                 bar_width,
                 label=f'Node {node}',
                 color='#DC143C',
@@ -54,7 +51,7 @@ for i, node in enumerate(nodes):
                 zorder=2)
     elif i == 1:  # node6
         plt.bar(x, 
-                node_data['throughput'],
+                node_data['CN P99'],
                 bar_width,
                 label=f'Node {node}',
                 color='none',
@@ -63,7 +60,7 @@ for i, node in enumerate(nodes):
                 zorder=2)
     else:  # node7
         plt.bar(x, 
-                node_data['throughput'],
+                node_data['CN P99'],
                 bar_width,
                 label=f'Node {node}',
                 color='none',
@@ -77,17 +74,18 @@ plt.xticks([i + (len(nodes) - 1) * (bar_width + 0.005) / 2 for i in range(len(ro
 
 # 设置标签和标题
 plt.xlabel('Number of Threads')
-plt.ylabel('Throughput (Mops/sec)')
+plt.ylabel('CPU utilization P99 (%)')
 
-# 设置y轴范围从1.0开始
+# 获取当前y轴的范围
 y_min, y_max = plt.ylim()
-plt.ylim(1.0, y_max * 1.2)
+# 增加y轴上限，使图表有更多空间
+plt.ylim(y_min, y_max * 1.2)
 
 # 将图例移到右上角
 plt.legend(loc='upper right')
 plt.grid(True, linestyle='--', alpha=0.7, zorder=0)  # 将网格线置于底层
 
 # 保存图片
-plt.savefig('../pic-png/zf-MN-1.png', dpi=300, bbox_inches='tight')
-plt.savefig('../pic-svg/zf-MN-1.svg', bbox_inches='tight')
+plt.savefig('../pic-png/zf-CN-P99.png', dpi=300, bbox_inches='tight')
+plt.savefig('../pic-svg/zf-CN-P99.svg', bbox_inches='tight')
 plt.close()

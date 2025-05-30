@@ -1607,7 +1607,7 @@ Status Memory_Node_Keeper::InstallCompactionResultsToComputePreparation(
   }
   int rc;
   if (rdma_mg->rdma_config.gid_idx >= 0) {
-    printf("checkpoint0\n");
+    printf("Server_to_Client_Communicatio: cp0 if\n");
     rc = ibv_query_gid(rdma_mg->res->ib_ctx, rdma_mg->rdma_config.ib_port,
                        rdma_mg->rdma_config.gid_idx,
                        &(rdma_mg->res->my_gid));
@@ -1617,15 +1617,17 @@ Status Memory_Node_Keeper::InstallCompactionResultsToComputePreparation(
 
       return;
     }
-  } else
+  } else{
+    printf("Server_to_Client_Communicatio: cp0 else\n");
     memset(&(rdma_mg->res->my_gid), 0, sizeof rdma_mg->res->my_gid);
+  }  
   server_sock_connect(rdma_mg->rdma_config.server_name,
                       rdma_mg->rdma_config.tcp_port);
 }
 // connection code for server side, will get prepared for multiple connection
 // on the same port.
 int Memory_Node_Keeper::server_sock_connect(const char* servername, int port) {//此处是自己的
-  printf("server_sock_connect : servername %s. port %d\n",servername,port);
+printf("server_sock_connect : servername %s. port %d\n",servername,port);
   struct addrinfo* resolved_addr = NULL;
   struct addrinfo* iterator;
   char service[6];
