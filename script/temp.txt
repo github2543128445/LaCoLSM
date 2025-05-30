@@ -1,0 +1,65 @@
+[ 96%] Built target TimberSaw
+[100%] Built target Server
+[ 88%] Built target TimberSaw
+[ 91%] Built target gtest
+[ 94%] Built target gmock
+[100%] Built target db_bench
+[100%] Built target TimberSaw
+searching for IB devices in host
+found 2 device(s)
+device specified, using:mlx5_1
+SST buffer, send&receive buffer were registered with a
+maximum outstanding wr number is 32768
+maximum query pair number is 262144
+maximum completion queue number is 16777216
+maximum memory region number is 16777216
+maximum memory region size is 18446744073709551615
+Server_to_Client_Communicatio: cp0 if
+server_sock_connect : servername (null). port 19843
+connection built up from 10.0.0.65:63660
+connection family is 2
+///communication thread 1///
+A new shared memory thread start
+checkpoint-out
+ConnectQPThroughSocket : checkpoint1
+ConnectQPThroughSocket: checkpoint2
+total bytes: 23
+read byte: 23
+ConnectQPThroughSocket : qp_type ¬ø
+, socket_fd 6, target_node_id 1
+ConnectQPThroughSocket: checkpoint3
+ConnectQPThroughSocket: cq_map.insert[1]
+ConnectQPThroughSocket: checkpoint4
+connect_qp : qp_type ¬ø
+ , target_node_id 1
+connect_qp : cp1
+connect_qp : cp2
+connect_qp : cp3
+connect_qp : cp4
+ConnectQPThroughSocket: done
+The connected compute node's id is 1
+checkpoint3
+connection built up from 10.0.0.66:38040
+connection family is 2
+///communication thread 2///
+A new shared memory thread start
+checkpoint-out
+ConnectQPThroughSocket : checkpoint1
+ConnectQPThroughSocket: checkpoint2
+total bytes: 23
+read byte: 23
+ConnectQPThroughSocket : qp_type ˜”
+, socket_fd 7, target_node_id 3
+ConnectQPThroughSocket: checkpoint3
+ConnectQPThroughSocket: cq_map.insert[3]
+ConnectQPThroughSocket: checkpoint4
+connect_qp : qp_type ˜”
+ , target_node_id 3
+connect_qp : cp1
+connect_qp : cp2
+connect_qp : cp3
+connect_qp : cp4
+ConnectQPThroughSocket: done
+The connected compute node's id is 3
+connection built up from 10.0.0.67:57542
+connection family is 2
