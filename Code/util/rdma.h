@@ -352,7 +352,7 @@ class RDMA_Manager {
       }
       sleep(1);
     }
-    printf("all finished, exit...\n");
+    printf("All nodes' benchmark finished, exit...\n");
     return;
   }
   std::map<uint8_t,double> Remote_utilization;
