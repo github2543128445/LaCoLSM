@@ -937,7 +937,7 @@ class Benchmark {
       arg[i].thread = new ThreadState(i, /*seed=*/1000 + total_thread_count_); //以当前线程序号为种子
       arg[i].thread->shared = &shared;
       printf("start front-end threads %d\n",i);
-      g_env->StartThread(ThreadBody, &arg[i]);  //std::thread new_thread(thread_main, thread_main_arg); new_thread.detach(); //下发Thread
+      g_env->StartThread(ThreadBody, &arg[i]); //运行并detach
     }
     std::thread* t_print = nullptr;
     if (FLAGS_batchprint){
@@ -970,7 +970,7 @@ class Benchmark {
       arg[0].thread->stats.Merge(arg[i].thread->stats);
     }
     if(db_ == nullptr) printf("!!!!db has been deleted!!!!\n");
-    db_->DBreport();
+    db_->DBreport();//LZY add, 含Compaction信息,cpu利用率信息
     
     arg[0].thread->stats.Report(name); //只报告0，但实际上将所有线程进行了Merge（ops\runseconds\bytes）
     
@@ -991,6 +991,9 @@ class Benchmark {
 
     if (method == &Benchmark::ReadRandom || method == &Benchmark::ReadRandom_Sharded)
       Validation_Read();
+
+    //LZYTODO 在这之后加堵塞, 让三个当三个节点都完成时再继续
+    rdma_mg->Finish_and_Wait();
   }
 
   void Crc32c(ThreadState* thread) {

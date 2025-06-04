@@ -700,7 +700,15 @@ void RDMA_Manager::compute_message_handling_thread(std::string q_id, uint8_t sha
                                    "main");
         remote_cpu_util_heart_beater_receiver(receive_msg_buf,
                                               shard_target_node_id);
-      } else {//一开始会瞎发东西, 不知道是啥导致的, 然后被向主的方向就断了
+      } else if(receive_msg_buf->command == benchmark_finish) {
+        // handle the heartbeat, record the cpu utilization and core number of the remote memory
+        post_receive<RDMA_Request>(&recv_mr[buffer_counter],
+                                   shard_target_node_id,
+                                   "main");
+        finished_node[shard_target_node_id] = true;
+        printf("compute_message_handling_thread: node %d finish benchmark\n",shard_target_node_id);
+      }
+      else {//一开始会瞎发东西, 不知道是啥导致的, 然后被向主的方向就断了
         post_receive<RDMA_Request>(&recv_mr[buffer_counter], shard_target_node_id, "main");
         printf("compute_message_handling_thread: corrupt message from node %d, command = %d\n",shard_target_node_id,receive_msg_buf->command); //LZY delete
         printf("but get util = %lf\n",receive_msg_buf->content.cpu_info.cpu_util);
@@ -1352,6 +1360,11 @@ void RDMA_Manager::passive_communication_thread(std::string client_ip, int socke
       if(receive_msg_buf->command == cpu_utilization_heartbeat){
         post_receive<RDMA_Request>(&recv_mr[buffer_position],compute_node_id,client_ip);
         remote_cpu_util_heart_beater_receiver(receive_msg_buf,compute_node_id);
+      } else if(receive_msg_buf->command == benchmark_finish) {
+        // handle the heartbeat, record the cpu utilization and core number of the remote memory
+        post_receive<RDMA_Request>(&recv_mr[buffer_position],compute_node_id,client_ip);
+        finished_node[compute_node_id] = true;
+        printf("passive_communication_thread: node %d finish benchmark\n",compute_node_id);
       } else {//一开始会瞎发东西, 不知道是啥导致的, 然后被向主的方向就断了
         post_receive<RDMA_Request>(&recv_mr[buffer_position], compute_node_id, client_ip);
         printf("compute_message_handling_thread: corrupt message from node %d, command = %d\n",compute_node_id,receive_msg_buf->command); //LZY delete
@@ -1986,7 +1999,7 @@ int RDMA_Manager::connect_qp(ibv_qp* qp, std::string& qp_type,
 //    assert(qp!= nullptr);
 //  }
 // protect the res->qp_main_connection_info outside this function
-  printf("connect_qp : qp_type %s , target_node_id %d\n",qp_type.c_str(),target_node_id);
+  //printf("connect_qp : qp_type %s , target_node_id %d\n",qp_type.c_str(),target_node_id);LZYdel
   registered_qp_config* remote_con_data;
   std::shared_lock<std::shared_mutex> l(qp_cq_map_mutex);
   if (qp_type == "read_local" )

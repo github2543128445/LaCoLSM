@@ -131,7 +131,8 @@ enum RDMA_Command_Type {
   retrieve_log_serialized_data,
   request_cpu_utilization,
   create_cpu_refresher,
-  cpu_utilization_heartbeat
+  cpu_utilization_heartbeat,
+  benchmark_finish
 };
 enum file_type { log_type, others };
 struct fs_sync_command {
@@ -324,6 +325,36 @@ class RDMA_Manager {
 
  public:
 //LZY add v
+  //int node_id;
+  std::map<uint8_t,bool> finished_node;
+  void Send_finish(uint8_t node_id){
+    
+  }
+  void Finish_and_Wait(){ //循环发送完成信息, 阻塞等待其他节点完成, 在调用该函数前, benchmark已经跑完,输出了相关信息
+    while(finished_node.size()<compute_nodes.size()){
+      printf("now finished %d benchmark, wait for other...\n",finished_node.size());
+      for (auto iter : compute_nodes) {
+        if(iter.first == RDMA_Manager::node_id) continue;
+        // register the memory block from the remote memory
+        RDMA_Request* send_pointer;
+        ibv_mr send_mr = {};
+        Allocate_Local_RDMA_Slot(send_mr, Message);
+        send_pointer = (RDMA_Request*)send_mr.addr;
+        send_pointer->command = benchmark_finish;
+        post_send<RDMA_Request>(&send_mr, iter.first, std::string("main"));
+        ibv_wc wc[2] = {};
+        if (poll_completion(wc, 1, std::string("main"), true, iter.first)){
+          fprintf(stderr, "failed to poll send for remote memory register\n");
+          return ;
+        }
+        printf("send benchmark_finish to %d done\n", iter.first);
+        finished_node[node_id] = true; //在自己完成前, 应至少发过一次, 别晾着别人
+      }
+      sleep(1);
+    }
+    printf("all finished, exit...\n");
+    return;
+  }
   std::map<uint8_t,double> Remote_utilization;
   std::map<uint8_t,std::mutex> Remote_uti_mtx;
   std::map<uint8_t,std::deque<double>> Remote_uti_q;
