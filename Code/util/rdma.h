@@ -332,7 +332,6 @@ class RDMA_Manager {
   }
   void Finish_and_Wait(){ //循环发送完成信息, 阻塞等待其他节点完成, 在调用该函数前, benchmark已经跑完,输出了相关信息
     while(finished_node.size()<compute_nodes.size()){
-      printf("now finished %d benchmark, wait for other...\n",finished_node.size());
       for (auto iter : compute_nodes) {
         if(iter.first == RDMA_Manager::node_id) continue;
         // register the memory block from the remote memory
@@ -349,6 +348,7 @@ class RDMA_Manager {
         }
         printf("send benchmark_finish to %d done\n", iter.first);
         finished_node[node_id] = true; //在自己完成前, 应至少发过一次, 别晾着别人
+        printf("now finished %d benchmark, wait for other...\n",finished_node.size());
       }
       sleep(1);
     }
