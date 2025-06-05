@@ -1663,13 +1663,10 @@ bool DBImpl::CheckByteaddressableOrNot(Compaction* compact) {
 
 }
 
-#ifdef NEARDATACOMPACTION //LZY:这是一直有的
-void DBImpl::BackgroundCompaction(void* p) { //LZY:参数好像没用到\目前依然是由计算节点运行
-  //  if (slow_down_compaction.load()){
-  //    usleep(50);
-  //  }
-  //  write_stall_mutex_.AssertNotHeld();
-  //  assert(false);
+int DBImpl::CompactionTaskWhereToGo(Compaction* compact){
+  return -1;
+}
+void DBImpl::BackgroundCompactionOrDistribute(void *p){
   if (shutting_down_.load(std::memory_order_acquire)) {
     // No more background work when shutting down.
   } else if (!bg_error_.ok()) {
@@ -1679,178 +1676,99 @@ void DBImpl::BackgroundCompaction(void* p) { //LZY:参数好像没用到\目前�
     bool is_manual = (manual_compaction_ != nullptr);
     InternalKey manual_end;
     if (is_manual) {//never happen -LZY
-      ManualCompaction* m = manual_compaction_;
-      c = versions_->CompactRange(m->level, m->begin, m->end);
-      m->done = (c == nullptr);
-      if (c != nullptr) {
-        manual_end = c->input(0, c->num_input_files(0) - 1)->largest;
-      }
-      Log(options_.info_log,
-          "Manual compaction at level-%d from %s .. %s; will stop at %s\n",
-          m->level, (m->begin ? m->begin->DebugString().c_str() : "(begin)"),
-          (m->end ? m->end->DebugString().c_str() : "(end)"),
-          (m->done ? "(end)" : manual_end.DebugString().c_str()));
+      printf("!!!BackgroundCompactionOrDistribute:is_manual 1 !!!\n");
     } else {
       c = versions_->PickCompaction(&superversion_memlist_mtx); //c中储存了待compaction的table的元数据
-      //if there is no task to pick up, just return.
       if (c== nullptr){
         DEBUG("compaction task executed but not found doable task.\n");
         delete c;
         return;
       }
-
     }
-  //    write_stall_mutex_.AssertNotHeld();
+
 
     Status status;
     if (c == nullptr) {
       // Nothing to do
-    } else { //LZY:从这开始改
-      bool need_push_down = CheckWhetherPushDownorNot(c); //NearData-true, else-false
-      last_compaction_in_MN = need_push_down; 
+    } else {   
       //if(need_push_down!=last_compaction) change_last();  
       if(CheckByteaddressableOrNot(c)){
-  //        printf("SHould create as a byte-addressable SSTable\n");
         c->table_type = byte_addressable;
       }else{
-  //        printf("SHould create as a block based SSTable\n");
         c->table_type = block_based;
       }
-  //      versions_->table_cache_.
+
+
       if (!is_manual && c->IsTrivialMove()) { 
-        //LZY:如果只需要简单下移level即可，没有分裂和合并,那么只需要修改元数据（应该是，我看没远程通信） 
-#ifdef MYDEBUG        
+        //LZY:如果只需要简单下移level即可，没有分裂和合并,那么只需要修改元数据（应该是，我看没远程通信）  
         trivial_move_in_level[c->level()]++;
-#endif
-        // Move file to next level
         assert(c->num_input_files(0) == 1);
         std::shared_ptr<RemoteMemTableMetaData> f = c->input(0, 0); //第level层的table元数据 -LZY
         c->edit()->RemoveFile(c->level(), f->number, f->creator_node_id);
         c->edit()->AddFile(c->level() + 1, f);
         {
           std::unique_lock<std::mutex> l_sv(superversion_memlist_mtx);
-  //          std::unique_lock<std::mutex> l_vs(versionset_mtx, std::defer_lock);
           f->level = c->level() + 1;
           status = versions_->LogAndApply(c->edit());
           //trival move need to clear the UnderCompaction flag
           f->UnderCompaction = false;
           c->ReleaseInputs();
-#ifdef WITHPERSISTENCE
-          //different from normal compaction
-          // TODO: SSTable persistency for compaction on compute side is not available yet.
-          Edit_sync_to_remote(c->edit(), shard_target_node_id);
-#endif  
-  //#ifndef WITHPERSISTENCE
-  //          l_vs.unlock();
-  //#endif
-
           InstallSuperVersion();
         }
 
         if (!status.ok()) {
           RecordBackgroundError(status);
         }
-  //        VersionSet::LevelSummaryStorage tmp;
-  //        Log(options_.info_log, "Moved #%lld to level-%d %lld bytes %s: %s\n",
-  //            static_cast<unsigned long long>(f->number), c->level() + 1,
-  //            static_cast<unsigned long long>(f->file_size),
-  //            status.ToString().c_str(), versions_->LevelSummary(&tmp));
        DEBUG_arg("Trival compaction< level 0 file number is %d\n", c->num_input_files(0));
-      } else if (need_push_down) { //LZY: NearCompaction  
-#ifdef MYDEBUG        
+      } else { //LZY : 需要进行Compaction, 先决定谁去做
+        int worknode = CompactionTaskWhereToGo(c);
         trigger_compaction_in_level[c->level()]++;
-        memory_compaction++;
-#endif
         compaction_num++;
-#if NEARDATACOMPACTION==2        // Only when there is enough input level files and output level files will the subcompaction triggered
-        if (options_.usesubcompaction && c->num_input_files(0)>=options_.input0_subcompaction_thr && c->num_input_files(1)>=options_.input1_subcompaction_thr){
-#else
-        if (options_.usesubcompaction && c->num_input_files(0)>=4 && c->num_input_files(1)>=2){
-#endif
-        subcompaction_num++;}
-       // try to let the CPU print the average CPU utilizaiton when compaciotn is triggered.
-  //       if (!compaction_start){
-  //          env_->rdma_mg->Print_Remote_CPU_RPC(0);
-  //          compaction_start = true;
-  //       }
-        auto start = std::chrono::high_resolution_clock::now();
-        // The neardata compaction branch
-        NearDataCompaction(c); 
-        auto stop = std::chrono::high_resolution_clock::now();
-#ifdef CHECK_COMPACTION_TIME
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
-        uint64_t total_size = 0;
-        total_size = c->Total_data_size();
-        total_size = total_size/1024/1024; // in MB
+        if (options_.usesubcompaction && c->num_input_files(0)>=4 && c->num_input_files(1)>=2) subcompaction_num++;
 
-        duration_time_in_level[c->level()] += duration.count()/1000;
-        compaction_size_in_level[c->level()] += total_size;
-        
-        // int av_core = std::floor(c->dynamic_remote_available_core);
-        // compaction_speed[av_core] += duration.count()/1000.0;
-        // compaction_speed_div[av_core] +=total_size;
-#endif
-      } else { //no near-data compaction 
-      //CN compaction!
-#ifdef MYDEBUG        
-        trigger_compaction_in_level[c->level()]++;
-        compute_compaction++;
-        compaction_num++;
-#endif         
-        auto start = std::chrono::high_resolution_clock::now();
+        if(worknode == -1){//自己做
+          compute_compaction++;
+          auto start = std::chrono::high_resolution_clock::now();
+          CompactionState* compact = new CompactionState(c);
+          if (options_.usesubcompaction && c->num_input_files(0)>=4 && c->num_input_files(1)>=2){
+            subcompaction_num++;
+            status = DoCompactionWorkWithSubcompaction(compact);
+          } else {
+            status = DoCompactionWork(compact);
+          }
+          DEBUG("Non-trivalcompaction!\n");
+          if (!status.ok()) RecordBackgroundError(status);
+          CleanupCompaction(compact);
+          auto stop = std::chrono::high_resolution_clock::now();
+          #ifdef CHECK_COMPACTION_TIME
+          auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
+          uint64_t total_size = 0;
+          total_size = c->Total_data_size();
+          total_size = total_size/1024/1024; // in MB
+          
+          duration_time_in_level[c->level()] += duration.count()/1000;
+          compaction_size_in_level[c->level()] += total_size;
+          #endif
 
-        // Normal compaction branch
-        CompactionState* compact = new CompactionState(c);
-
-//        write_stall_mutex_.AssertNotHeld();
-#if NEARDATACOMPACTION==2        // Only when there is enough input level files and output level files will the subcompaction triggered
-        if (options_.usesubcompaction && c->num_input_files(0)>=options_.input0_subcompaction_thr && c->num_input_files(1)>=options_.input1_subcompaction_thr){
-#else
-        if (options_.usesubcompaction && c->num_input_files(0)>=4 && c->num_input_files(1)>=2){
-#endif
-//        if (options_.usesubcompaction && c->num_input_files(1)>1){
-          subcompaction_num++;
-          status = DoCompactionWorkWithSubcompaction(compact);
-        } else {
-          status = DoCompactionWork(compact);
+        } else if(worknode == 0){//MN做
+          memory_compaction++;
+          auto start = std::chrono::high_resolution_clock::now();
+          // The neardata compaction branch
+          NearDataCompaction(c); 
+          auto stop = std::chrono::high_resolution_clock::now();
+          #ifdef CHECK_COMPACTION_TIME
+          auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
+          uint64_t total_size = 0;
+          total_size = c->Total_data_size();
+          total_size = total_size/1024/1024; // in MB
+          duration_time_in_level[c->level()] += duration.count()/1000;
+          compaction_size_in_level[c->level()] += total_size;
+          #endif
+        } else{ //其他CN做
+          other_CN_compaction++;
         }
-        // printf("Table compaction time elapse (%ld) us, compaction level is %d, first level file number %d, the second level file number %d \n",
-        //        duration.count(), compact->compaction->level(), compact->compaction->num_input_files(0),compact->compaction->num_input_files(1) );
-        DEBUG("Non-trivalcompaction!\n");
-        // std::cout << "compaction task table number in the first level"<<compact->compaction->inputs_[0].size() << std::endl;
-        if (!status.ok()) {
-        RecordBackgroundError(status);
-        }
-        CleanupCompaction(compact);
-//        RemoveObsoleteFiles();
-        auto stop = std::chrono::high_resolution_clock::now();
-#ifdef CHECK_COMPACTION_TIME
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
-        uint64_t total_size = 0;
-        total_size = c->Total_data_size();
-        total_size = total_size/1024/1024; // in MB
-        
-        duration_time_in_level[c->level()] += duration.count()/1000;
-        compaction_size_in_level[c->level()] += total_size;
-        
-        // int av_core = std::floor(c->dynamic_local_available_core);
-        // av_core=av_core>32?32:av_core;
-        // compaction_speed[av_core] += duration.count()/1000.0;
-        // compaction_speed_div[av_core] +=total_size;
-        
-        //int paralism = std::floor(c->dynamic_local_available_core);
-        //sum_time[paralism] += duration.count()/total_size ;//  可满足x并行度时，每MB处理时间为y us
-        //sum_time_div[paralism]++;
-#endif
-
-//        if (c->num_input_files(0) == 1 && c->num_input_files(1) == 1) {
-//          printf(
-//              "[Compute] level 0 compaction first level file size %lu, second level file size %lu time elapse %ld\n",
-//              c->input(0,0)->file_size, c->input(1,0)->file_size, duration.count());
-//        }
-      }
-
-    }
+      }//end of need real compaction
+    }//end of c!=nullptr
     delete c;
 
     if (status.ok()) {
@@ -1860,25 +1778,229 @@ void DBImpl::BackgroundCompaction(void* p) { //LZY:参数好像没用到\目前�
     } else {
       Log(options_.info_log, "Compaction error: %s", status.ToString().c_str());
     }
-
     if (is_manual) {
-      ManualCompaction* m = manual_compaction_;
-      if (!status.ok()) {
-        m->done = true;
-      }
-      if (!m->done) {
-        // We only compacted part of the requested range.  Update *m
-        // to the range that is left to be compacted.
-        m->tmp_storage = manual_end;
-        m->begin = &m->tmp_storage;
-      }
-      manual_compaction_ = nullptr;
+      printf("!!!BackgroundCompactionOrDistribute:is_manual 2!!!\n");
     }
-  }
-
+  }//end of if (versions_->NeedsCompaction()) 
   MaybeScheduleFlushOrCompaction();
+} 
+#ifdef NEARDATACOMPACTION //LZY:这是一直有的
+void DBImpl::BackgroundCompaction(void* p) { BackgroundCompactionOrDistribute(p);}//LZYchange
+// void DBImpl::BackgroundCompaction(void* p) { //LZY:参数好像没用到\目前依然是由计算节点运行
+//   //  if (slow_down_compaction.load()){
+//   //    usleep(50);
+//   //  }
+//   //  write_stall_mutex_.AssertNotHeld();
+//   //  assert(false);
+//   if (shutting_down_.load(std::memory_order_acquire)) {
+//     // No more background work when shutting down.
+//   } else if (!bg_error_.ok()) {
+//     // No more background work after a background error.
+//   } else if (versions_->NeedsCompaction()) {//LZY：仅判断最大，并不只compact最大的
+//     Compaction* c;
+//     bool is_manual = (manual_compaction_ != nullptr);
+//     InternalKey manual_end;
+//     if (is_manual) {//never happen -LZY
+//       ManualCompaction* m = manual_compaction_;
+//       c = versions_->CompactRange(m->level, m->begin, m->end);
+//       m->done = (c == nullptr);
+//       if (c != nullptr) {
+//         manual_end = c->input(0, c->num_input_files(0) - 1)->largest;
+//       }
+//       Log(options_.info_log,
+//           "Manual compaction at level-%d from %s .. %s; will stop at %s\n",
+//           m->level, (m->begin ? m->begin->DebugString().c_str() : "(begin)"),
+//           (m->end ? m->end->DebugString().c_str() : "(end)"),
+//           (m->done ? "(end)" : manual_end.DebugString().c_str()));
+//     } else {
+//       c = versions_->PickCompaction(&superversion_memlist_mtx); //c中储存了待compaction的table的元数据
+//       //if there is no task to pick up, just return.
+//       if (c== nullptr){
+//         DEBUG("compaction task executed but not found doable task.\n");
+//         delete c;
+//         return;
+//       }
 
-}
+//     }
+//   //    write_stall_mutex_.AssertNotHeld();
+
+//     Status status;
+//     if (c == nullptr) {
+//       // Nothing to do
+//     } else { //LZY:从这开始改
+//       bool need_push_down = CheckWhetherPushDownorNot(c); //NearData-true, else-false
+//       last_compaction_in_MN = need_push_down; 
+//       //if(need_push_down!=last_compaction) change_last();  
+//       if(CheckByteaddressableOrNot(c)){
+//   //        printf("SHould create as a byte-addressable SSTable\n");
+//         c->table_type = byte_addressable;
+//       }else{
+//   //        printf("SHould create as a block based SSTable\n");
+//         c->table_type = block_based;
+//       }
+//   //      versions_->table_cache_.
+//       if (!is_manual && c->IsTrivialMove()) { 
+//         //LZY:如果只需要简单下移level即可，没有分裂和合并,那么只需要修改元数据（应该是，我看没远程通信） 
+// #ifdef MYDEBUG        
+//         trivial_move_in_level[c->level()]++;
+// #endif
+//         // Move file to next level
+//         assert(c->num_input_files(0) == 1);
+//         std::shared_ptr<RemoteMemTableMetaData> f = c->input(0, 0); //第level层的table元数据 -LZY
+//         c->edit()->RemoveFile(c->level(), f->number, f->creator_node_id);
+//         c->edit()->AddFile(c->level() + 1, f);
+//         {
+//           std::unique_lock<std::mutex> l_sv(superversion_memlist_mtx);
+//   //          std::unique_lock<std::mutex> l_vs(versionset_mtx, std::defer_lock);
+//           f->level = c->level() + 1;
+//           status = versions_->LogAndApply(c->edit());
+//           //trival move need to clear the UnderCompaction flag
+//           f->UnderCompaction = false;
+//           c->ReleaseInputs();
+// #ifdef WITHPERSISTENCE
+//           //different from normal compaction
+//           // TODO: SSTable persistency for compaction on compute side is not available yet.
+//           Edit_sync_to_remote(c->edit(), shard_target_node_id);
+// #endif  
+//   //#ifndef WITHPERSISTENCE
+//   //          l_vs.unlock();
+//   //#endif
+
+//           InstallSuperVersion();
+//         }
+
+//         if (!status.ok()) {
+//           RecordBackgroundError(status);
+//         }
+//   //        VersionSet::LevelSummaryStorage tmp;
+//   //        Log(options_.info_log, "Moved #%lld to level-%d %lld bytes %s: %s\n",
+//   //            static_cast<unsigned long long>(f->number), c->level() + 1,
+//   //            static_cast<unsigned long long>(f->file_size),
+//   //            status.ToString().c_str(), versions_->LevelSummary(&tmp));
+//        DEBUG_arg("Trival compaction< level 0 file number is %d\n", c->num_input_files(0));
+//       } else if (need_push_down) { //LZY: NearCompaction  
+// #ifdef MYDEBUG        
+//         trigger_compaction_in_level[c->level()]++;
+//         memory_compaction++;
+// #endif
+//         compaction_num++;
+// #if NEARDATACOMPACTION==2        // Only when there is enough input level files and output level files will the subcompaction triggered
+//         if (options_.usesubcompaction && c->num_input_files(0)>=options_.input0_subcompaction_thr && c->num_input_files(1)>=options_.input1_subcompaction_thr){
+// #else
+//         if (options_.usesubcompaction && c->num_input_files(0)>=4 && c->num_input_files(1)>=2){
+// #endif
+//         subcompaction_num++;}
+//        // try to let the CPU print the average CPU utilizaiton when compaciotn is triggered.
+//   //       if (!compaction_start){
+//   //          env_->rdma_mg->Print_Remote_CPU_RPC(0);
+//   //          compaction_start = true;
+//   //       }
+//         auto start = std::chrono::high_resolution_clock::now();
+//         // The neardata compaction branch
+//         NearDataCompaction(c); 
+//         auto stop = std::chrono::high_resolution_clock::now();
+// #ifdef CHECK_COMPACTION_TIME
+//         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
+//         uint64_t total_size = 0;
+//         total_size = c->Total_data_size();
+//         total_size = total_size/1024/1024; // in MB
+
+//         duration_time_in_level[c->level()] += duration.count()/1000;
+//         compaction_size_in_level[c->level()] += total_size;
+        
+//         // int av_core = std::floor(c->dynamic_remote_available_core);
+//         // compaction_speed[av_core] += duration.count()/1000.0;
+//         // compaction_speed_div[av_core] +=total_size;
+// #endif
+//       } else { //no near-data compaction 
+//       //CN compaction!
+// #ifdef MYDEBUG        
+//         trigger_compaction_in_level[c->level()]++;
+//         compute_compaction++;
+//         compaction_num++;
+// #endif         
+//         auto start = std::chrono::high_resolution_clock::now();
+
+//         // Normal compaction branch
+//         CompactionState* compact = new CompactionState(c);
+
+// //        write_stall_mutex_.AssertNotHeld();
+// #if NEARDATACOMPACTION==2        // Only when there is enough input level files and output level files will the subcompaction triggered
+//         if (options_.usesubcompaction && c->num_input_files(0)>=options_.input0_subcompaction_thr && c->num_input_files(1)>=options_.input1_subcompaction_thr){
+// #else
+//         if (options_.usesubcompaction && c->num_input_files(0)>=4 && c->num_input_files(1)>=2){
+// #endif
+// //        if (options_.usesubcompaction && c->num_input_files(1)>1){
+//           subcompaction_num++;
+//           status = DoCompactionWorkWithSubcompaction(compact);
+//         } else {
+//           status = DoCompactionWork(compact);
+//         }
+//         // printf("Table compaction time elapse (%ld) us, compaction level is %d, first level file number %d, the second level file number %d \n",
+//         //        duration.count(), compact->compaction->level(), compact->compaction->num_input_files(0),compact->compaction->num_input_files(1) );
+//         DEBUG("Non-trivalcompaction!\n");
+//         // std::cout << "compaction task table number in the first level"<<compact->compaction->inputs_[0].size() << std::endl;
+//         if (!status.ok()) {
+//         RecordBackgroundError(status);
+//         }
+//         CleanupCompaction(compact);
+// //        RemoveObsoleteFiles();
+//         auto stop = std::chrono::high_resolution_clock::now();
+// #ifdef CHECK_COMPACTION_TIME
+//         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
+//         uint64_t total_size = 0;
+//         total_size = c->Total_data_size();
+//         total_size = total_size/1024/1024; // in MB
+        
+//         duration_time_in_level[c->level()] += duration.count()/1000;
+//         compaction_size_in_level[c->level()] += total_size;
+        
+//         // int av_core = std::floor(c->dynamic_local_available_core);
+//         // av_core=av_core>32?32:av_core;
+//         // compaction_speed[av_core] += duration.count()/1000.0;
+//         // compaction_speed_div[av_core] +=total_size;
+        
+//         //int paralism = std::floor(c->dynamic_local_available_core);
+//         //sum_time[paralism] += duration.count()/total_size ;//  可满足x并行度时，每MB处理时间为y us
+//         //sum_time_div[paralism]++;
+// #endif
+
+// //        if (c->num_input_files(0) == 1 && c->num_input_files(1) == 1) {
+// //          printf(
+// //              "[Compute] level 0 compaction first level file size %lu, second level file size %lu time elapse %ld\n",
+// //              c->input(0,0)->file_size, c->input(1,0)->file_size, duration.count());
+// //        }
+//       }
+
+//     }
+//     delete c;
+
+//     if (status.ok()) {
+//       // Done
+//     } else if (shutting_down_.load(std::memory_order_acquire)) {
+//       // Ignore compaction errors found during shutting down
+//     } else {
+//       Log(options_.info_log, "Compaction error: %s", status.ToString().c_str());
+//     }
+
+//     if (is_manual) {
+//       ManualCompaction* m = manual_compaction_;
+//       if (!status.ok()) {
+//         m->done = true;
+//       }
+//       if (!m->done) {
+//         // We only compacted part of the requested range.  Update *m
+//         // to the range that is left to be compacted.
+//         m->tmp_storage = manual_end;
+//         m->begin = &m->tmp_storage;
+//       }
+//       manual_compaction_ = nullptr;
+//     }
+//   }
+
+//   MaybeScheduleFlushOrCompaction();
+
+// }
 #endif
 void DBImpl::CleanupCompaction(CompactionState* compact) {
 //  undefine_mutex.AssertHeld();

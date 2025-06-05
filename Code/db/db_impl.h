@@ -91,6 +91,7 @@ class DBImpl : public DB{
   unsigned compaction_size_in_level[7];
   int memory_compaction = 0;
   int compute_compaction = 0;
+  int other_CN_compaction = 0;
   int compaction_num = 0;//包括subcompaction
   int subcompaction_num = 0;
   //double sum_time[33];
@@ -314,8 +315,9 @@ class DBImpl : public DB{
   void BackgroundCall();
   void BackgroundFlush(void* p);
   void BackgroundCompaction(void* p) EXCLUSIVE_LOCKS_REQUIRED(undefine_mutex);
+  void BackgroundCompactionOrDistribute(void *p) EXCLUSIVE_LOCKS_REQUIRED(undefine_mutex);//LZYADD
   std::atomic<int> print_counter = 0;
-
+  int CompactionTaskWhereToGo(Compaction* compact);//LZYADD
   bool CheckWhetherPushDownorNot(Compaction* compact);
   bool CheckByteaddressableOrNot(Compaction* compact);
   long double RequestRemoteUtilization();
