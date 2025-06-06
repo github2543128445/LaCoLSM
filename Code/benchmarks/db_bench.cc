@@ -992,7 +992,6 @@ class Benchmark {
     if (method == &Benchmark::ReadRandom || method == &Benchmark::ReadRandom_Sharded)
       Validation_Read();
 
-    //LZYTODO 在这之后加堵塞, 让三个当三个节点都完成时再继续
     rdma_mg->Finish_and_Wait();
   }
 

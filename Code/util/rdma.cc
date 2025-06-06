@@ -2,7 +2,7 @@
 #include <util/rdma.h>
 #include <numa.h>
 #include "TimberSaw/env.h"
-
+#include "db/db_impl.h"
 
 namespace TimberSaw {
 uint8_t RDMA_Manager::node_id = 1;
@@ -633,8 +633,7 @@ void RDMA_Manager::compute_message_handling_thread(std::string q_id, uint8_t sha
     // we can only use try_poll... rather than poll_com.. because we need to
     // make sure the shutting down signal can work.
     if(try_poll_completions(wc, 1, q_id, false,shard_target_node_id) >0){
-      if(wc[0].wc_flags & IBV_WC_WITH_IMM){//LZY : never happen
-        printf("compute_message_handling_thread: %d's message with IMM\n",shard_target_node_id);
+      if(wc[0].wc_flags & IBV_WC_WITH_IMM){//LZY : MN to CN sometimes use
         wc[0].imm_data;// use this to find the correct condition variable.
         std::unique_lock<std::mutex> lck(*mtx_imme);
         // why imme_data not zero? some other thread has overwrite this function.
@@ -695,20 +694,21 @@ void RDMA_Manager::compute_message_handling_thread(std::string q_id, uint8_t sha
 #endif
       } else if(receive_msg_buf->command == cpu_utilization_heartbeat) {
         // handle the heartbeat, record the cpu utilization and core number of the remote memory
-        post_receive<RDMA_Request>(&recv_mr[buffer_counter],
-                                   shard_target_node_id,
-                                   "main");
+        post_receive<RDMA_Request>(&recv_mr[buffer_counter],shard_target_node_id,"main");
         remote_cpu_util_heart_beater_receiver(receive_msg_buf,
                                               shard_target_node_id);
       } else if(receive_msg_buf->command == benchmark_finish) {
         // handle the heartbeat, record the cpu utilization and core number of the remote memory
-        post_receive<RDMA_Request>(&recv_mr[buffer_counter],
-                                   shard_target_node_id,
-                                   "main");
+        post_receive<RDMA_Request>(&recv_mr[buffer_counter],shard_target_node_id,"main");
         finished_node[shard_target_node_id] = true;
         printf("compute_message_handling_thread: node %d finish benchmark\n",shard_target_node_id);
-      }
-      else {//一开始会瞎发东西, 不知道是啥导致的, 然后被向主的方向就断了
+      } else if(receive_msg_buf->command == compaction_others){
+        post_receive<RDMA_Request>(&recv_mr[buffer_counter],shard_target_node_id,"main");
+        //LZYTODO 先有这么个东西,胡写的
+        Arg_for_handler* argforhandler = new Arg_for_handler{.request=receive_msg_buf, .client_ip = "main", .target_node_id = shard_target_node_id};
+        BGThreadMetadata* thread_pool_args = new BGThreadMetadata{.db = this, .func_args = argforhandler};
+        db_owner->env_->Schedule(DBImpl::BGWork_Compaction, static_cast<void*>(thread_pool_args), ThreadPoolType::CompactionThreadPool);
+      } else {//一开始会瞎发东西, 不知道是啥导致的, 然后被向主的方向就断了
         post_receive<RDMA_Request>(&recv_mr[buffer_counter], shard_target_node_id, "main");
         printf("compute_message_handling_thread: corrupt message from node %d, command = %d\n",shard_target_node_id,receive_msg_buf->command); //LZY delete
         printf("but get util = %lf\n",receive_msg_buf->content.cpu_info.cpu_util);
@@ -1315,7 +1315,7 @@ void RDMA_Manager::passive_communication_thread(std::string client_ip, int socke
       //Need to be detached.
       thread_sync.detach();
     }    
-    //compute_message_handling_thread("main", compute_node_id);//LZYTODO
+    //compute_message_handling_thread("main", compute_node_id);
     //LZY 下面是参考MN节点的实现方式， 和上面的compute_message_handling_thread二选一
     //直接复用compute_message_handling_thread会导致小的向大的发不了
     RPC_handler_thread_ready_num.fetch_add(1);
@@ -1365,6 +1365,12 @@ void RDMA_Manager::passive_communication_thread(std::string client_ip, int socke
         post_receive<RDMA_Request>(&recv_mr[buffer_position],compute_node_id,client_ip);
         finished_node[compute_node_id] = true;
         printf("passive_communication_thread: node %d finish benchmark\n",compute_node_id);
+      } else if(receive_msg_buf->command == compaction_others){
+        post_receive<RDMA_Request>(&recv_mr[buffer_position],compute_node_id,client_ip);
+        //LZY TODO 目前瞎写的
+        Arg_for_handler* argforhandler = new Arg_for_handler{.request=receive_msg_buf, .client_ip = client_ip, .target_node_id = compute_node_id};
+        BGThreadMetadata* thread_pool_args = new BGThreadMetadata{.db = this, .func_args = argforhandler};
+        db_owner->env_->Schedule(DBImpl::BGWork_Compaction, static_cast<void*>(thread_pool_args), ThreadPoolType::CompactionThreadPool);
       } else {//一开始会瞎发东西, 不知道是啥导致的, 然后被向主的方向就断了
         post_receive<RDMA_Request>(&recv_mr[buffer_position], compute_node_id, client_ip);
         printf("compute_message_handling_thread: corrupt message from node %d, command = %d\n",compute_node_id,receive_msg_buf->command); //LZY delete

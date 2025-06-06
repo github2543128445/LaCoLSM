@@ -241,6 +241,7 @@ printf("DB Impl1: cp1\n");
 //    }
 
     printf("communication thread created\n");
+    rdma_mg->db_owner = this;
     //Wait for the clearance of pending receive work request from the last DB open.
 //    {
 //      std::unique_lock<std::mutex> lck(superversion_memlist_mtx);
@@ -350,6 +351,7 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname,
   }
   // TODO: DBImpl is not a singleton, better to move the funciton below to a singleton.
   env_->SetBackgroundThreads(options_.max_background_flushes,ThreadPoolType::FlushThreadPool);
+  rdma_mg->db_owner = this;
 #ifdef PERFECT_THREAD_NUMBER_FOR_BGTHREADS
   int available_cpu_num = numa_num_task_cpus();
   while (!rdma_mg->remote_core_number_received.load());
@@ -1281,10 +1283,28 @@ void DBImpl::BGWork_Flush(void* thread_arg) {//触发flush-LZY
   ((DBImpl*)p->db)->BackgroundFlush(p->func_args);
   delete static_cast<BGThreadMetadata*>(thread_arg);
 }
-void DBImpl::BGWork_Compaction(void* thread_arg) {//触发Comapction -LZY
+void DBImpl::BGWork_Compaction(void* thread_arg) {//从线程池里ThreadPoolType::CompactionThreadPool搞来一个, 触发Comapction -LZY
   BGThreadMetadata* p = static_cast<BGThreadMetadata*>(thread_arg);
-  ((DBImpl*)p->db)->BackgroundCompaction(p->func_args);
+  ((DBImpl*)p->db)->BackgroundCompaction(p->func_args);//参数没用
   delete static_cast<BGThreadMetadata*>(thread_arg);
+}
+void DBImpl::Other_Compaction_Handler(void* arg){//参考sst_compaction_handler  
+  RDMA_Request* request = ((Arg_for_handler*) arg)->request;
+  std::string client_ip = ((Arg_for_handler*) arg)->client_ip;
+  uint8_t target_node_id = ((Arg_for_handler*) arg)->target_node_id;
+  void* remote_prt = request->buffer;
+  void* remote_large_prt = request->buffer_large;
+  uint32_t remote_rkey = request->rkey;
+  uint32_t remote_large_rkey = request->rkey_large;
+  unsigned int imm_num = request->imm_num;
+  //LZYTODO
+}
+void DBImpl::BGWork_CompactionOthers(void* thread_args){
+  //thread_args是BGThreadMetadata, 里面含.db应该用不上, .func_args有用
+  //func_args是Arg_for_handler, 里面含{.request=receive_msg_buf, .client_ip = client_ip, .target_node_id = compute_node_id}
+  BGThreadMetadata* p = static_cast<BGThreadMetadata*>(thread_args);
+  Other_Compaction_Handler(p->func_args);
+  delete static_cast<BGThreadMetadata*>(thread_args);
 }
 void DBImpl::BackgroundCall() {//不调用-LZY
   printf("////BackgroundCall////\n");
@@ -1664,7 +1684,28 @@ bool DBImpl::CheckByteaddressableOrNot(Compaction* compact) {
 }
 
 int DBImpl::CompactionTaskWhereToGo(Compaction* compact){
+  auto rdma_mg = env_->rdma_mg;
+  double LocalCPU_utilization = rdma_mg->local_cpu_percent.load();
+  auto &RemoteCPU_utilization=rdma_mg->server_cpu_percent;
+  //double RemoteCPU_utilization= rdma_mg->server_cpu_percent.at(shard_target_node_id)->load();
+#if NEARDATACOMPACTION==2
+  printf("RemoteCPU_utilization size = %d\n",RemoteCPU_utilization.size());
+  if(RemoteCPU_utilization.size() == 2){//先简化模型, 变成2CN-1MN, 测试其他节点Compaction的可能性
+    for(auto iter:RemoteCPU_utilization){
+      if(iter.first%2 ==0){ //内存节点
+        continue;
+      }else{ //计算节点
+        if(iter.first != rdma_mg->node_id){
+          return iter.first;//两个CN,自己的工作丢给别人
+        }
+      }
+    }
+  }
+#elif NEARDATACOMPACTION == 0
   return -1;
+#else
+  return 0; //Use NearDataCompaction
+#endif
 }
 void DBImpl::BackgroundCompactionOrDistribute(void *p){
   if (shutting_down_.load(std::memory_order_acquire)) {
@@ -1685,7 +1726,6 @@ void DBImpl::BackgroundCompactionOrDistribute(void *p){
         return;
       }
     }
-
 
     Status status;
     if (c == nullptr) {
@@ -1740,12 +1780,12 @@ void DBImpl::BackgroundCompactionOrDistribute(void *p){
           if (!status.ok()) RecordBackgroundError(status);
           CleanupCompaction(compact);
           auto stop = std::chrono::high_resolution_clock::now();
+
           #ifdef CHECK_COMPACTION_TIME
           auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
           uint64_t total_size = 0;
           total_size = c->Total_data_size();
           total_size = total_size/1024/1024; // in MB
-          
           duration_time_in_level[c->level()] += duration.count()/1000;
           compaction_size_in_level[c->level()] += total_size;
           #endif
@@ -1753,9 +1793,9 @@ void DBImpl::BackgroundCompactionOrDistribute(void *p){
         } else if(worknode == 0){//MN做
           memory_compaction++;
           auto start = std::chrono::high_resolution_clock::now();
-          // The neardata compaction branch
           NearDataCompaction(c); 
           auto stop = std::chrono::high_resolution_clock::now();
+
           #ifdef CHECK_COMPACTION_TIME
           auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
           uint64_t total_size = 0;
@@ -1766,6 +1806,10 @@ void DBImpl::BackgroundCompactionOrDistribute(void *p){
           #endif
         } else{ //其他CN做
           other_CN_compaction++;
+          printf("BackgroundCompactionOrDistribute: otherCN %d Compaction!\n",worknode);
+          
+
+
         }
       }//end of need real compaction
     }//end of c!=nullptr

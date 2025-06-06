@@ -249,6 +249,8 @@ class DBImpl : public DB{
   // long double server_cpu_percent = 0.0;
 //  void Wait_for_client_message_hanlding_setup();
  private:
+  friend class RDMA_Manager;
+  friend class Env;
   friend class DB;
 //  struct CompactionState;
 //  struct SubcompactionState;
@@ -312,6 +314,8 @@ class DBImpl : public DB{
   void MaybeScheduleFlushOrCompaction() EXCLUSIVE_LOCKS_REQUIRED(undefine_mutex);
   static void BGWork_Flush(void* thread_args);
   static void BGWork_Compaction(void* thread_args);
+  void Other_Compaction_Handler(void* arg);
+  void BGWork_CompactionOthers(void* thread_args);//LZYADD
   void BackgroundCall();
   void BackgroundFlush(void* p);
   void BackgroundCompaction(void* p) EXCLUSIVE_LOCKS_REQUIRED(undefine_mutex);

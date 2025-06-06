@@ -132,7 +132,8 @@ enum RDMA_Command_Type {
   request_cpu_utilization,
   create_cpu_refresher,
   cpu_utilization_heartbeat,
-  benchmark_finish
+  benchmark_finish,
+  compaction_others
 };
 enum file_type { log_type, others };
 struct fs_sync_command {
@@ -326,10 +327,8 @@ class RDMA_Manager {
  public:
 //LZY add v
   //int node_id;
+  DBImpl* db_owner;
   std::map<uint8_t,bool> finished_node;
-  void Send_finish(uint8_t node_id){
-    
-  }
   void Finish_and_Wait(){ //循环发送完成信息, 阻塞等待其他节点完成, 在调用该函数前, benchmark已经跑完,输出了相关信息
     while(finished_node.size()<compute_nodes.size()){
       for (auto iter : compute_nodes) {
