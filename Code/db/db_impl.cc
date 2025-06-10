@@ -218,7 +218,15 @@ printf("DB Impl1: cp1\n");
     byte_len = rdma_mg->byte_len_map.at(shard_target_node_id);
     cv_imme = rdma_mg->cv_imme_map.at(shard_target_node_id);
 
-
+    for (int i = 0; i < rdma_mg->compute_nodes.size(); ++i) {//LZYADD,初始化立即数操作的控制变量
+      uint8_t target_node_id = 2*i+1;
+      if(target_node_id == RDMA_Manager::node_id) continue;
+      CN_mtx_imme[target_node_id] = rdma_mg->mtx_imme_map.at(target_node_id);
+      CN_imm_gen[target_node_id] = rdma_mg->imm_gen_map.at(target_node_id);
+      CN_imme_data[target_node_id] = rdma_mg->imme_data_map.at(target_node_id);
+      CN_byte_len[target_node_id] = rdma_mg->byte_len_map.at(target_node_id);
+      CN_cv_imme[target_node_id] = rdma_mg->cv_imme_map.at(target_node_id);
+    }
     //TODO: Make client handling thread only 1 per compute node-memory node connection.
 //    main_comm_threads.emplace_back(
 //        &DBImpl::client_message_polling_and_handling_thread, this, "main");
@@ -1288,7 +1296,185 @@ void DBImpl::BGWork_Compaction(void* thread_arg) {//从线程池里ThreadPoolTyp
   ((DBImpl*)p->db)->BackgroundCompaction(p->func_args);//参数没用
   delete static_cast<BGThreadMetadata*>(thread_arg);
 }
-void DBImpl::Other_Compaction_Handler(void* arg){//参考sst_compaction_handler  
+Status DBImpl::DoRemoteCompactionWork(CompactionState* compact,uint8_t target_node_id){//LZYTODO 用的CN端的Compaction，基本没改，看看能不能直接用
+  assert(versions_->NumLevelFiles(compact->compaction->level()) > 0);
+  assert(compact->builder == nullptr);
+//  assert(compact->outfile == nullptr);
+  // if (snapshots_.empty()) { //这是写操作的序列号, 这应该不能用本地的判断吧
+  //   compact->smallest_snapshot = versions_->LastSequence();
+  // } else {
+  //   compact->smallest_snapshot = snapshots_.oldest()->sequence_number();
+  // }LZYDEL感觉不用管，因为MN没管
+
+  Iterator* input = versions_->MakeInputIterator(compact->compaction); //从compact->compaction里取上下两层的数据
+
+  input->SeekToFirst();
+#ifndef NDEBUG
+  int Not_drop_counter = 0;
+  int number_of_key = 0;
+#endif
+  Status status;
+  // TODO: try to create two ikey for parsed key, they can in turn represent the current user key
+  //  and former one, which can save the data copy overhead.
+  ParsedInternalKey ikey;
+  std::string current_user_key;
+  bool has_current_user_key = false;
+  SequenceNumber last_sequence_for_key = kMaxSequenceNumber;
+  std::string key;
+  assert(input->Valid());
+#ifndef NDEBUG
+  printf("first key is %s", input->key().ToString().c_str());
+#endif
+  while (input->Valid() && !shutting_down_.load(std::memory_order_acquire)) {
+    key = input->key().ToString();
+    assert(input->Valid());
+    assert(*key.data() == 0);
+//    assert(key.data()[0] == '0');
+    //We do not need to check whether the output file have too much overlap with level n + 2.
+    // If there is a lot of overlap subcompaction can be triggered.
+    //compact->compaction->ShouldStopBefore(key) &&
+//    if (compact->builder != nullptr) {
+//      status = FinishCompactionOutputFile(compact, input);
+//      if (!status.ok()) {
+//        break;
+//      }
+//    }
+    // key merged below!!!
+    // Handle key/value, add to state, etc.
+    bool drop = false;
+    if (!ParseInternalKey(key, &ikey)) { //这一小部分的if else用的MN的
+      // Do not hide error keys
+      current_user_key.clear();
+      has_current_user_key = false;
+      last_sequence_for_key = kMaxSequenceNumber;
+    } else {
+      if (!has_current_user_key){
+        //TODO: can we avoid the data copy here, can we set two buffers in block and make
+        // the old user key not be garbage collected so that the old Slice can be
+        // directly used here.
+        current_user_key.assign(ikey.user_key.data(), ikey.user_key.size());
+        has_current_user_key = true;
+      }
+      else if(user_comparator()->Compare(ikey.user_key, Slice(current_user_key)) !=
+      0) {
+        // First occurrence of this user key
+        current_user_key.assign(ikey.user_key.data(), ikey.user_key.size());
+        //        has_current_user_key = true;
+        //        last_sequence_for_key = kMaxSequenceNumber;
+        // this will result in the key not drop, next if will always be false because of
+        // the last_sequence_for_key.
+      }else{
+        drop = true;
+      }
+    }
+#ifndef NDEBUG
+    number_of_key++;
+#endif
+    if (!drop) {
+      // Open output file if necessary
+      if (compact->builder == nullptr) { //LZY:当前为空就新建一个Output文件
+        status = OpenCompactionOutputFileFor(compact,target_node_id);
+        if (!status.ok()) {
+          break;
+        }
+      }
+      if (compact->builder->NumEntries() == 0) {
+        compact->current_output()->smallest.DecodeFrom(key);
+      }
+#ifndef NDEBUG
+      Not_drop_counter++;
+#endif
+      compact->builder->Add(key, input->value());
+      //assert(key.data()[0] == '0');
+      //Close output file if it is big enough
+
+      if (compact->builder->FileSize() >=compact->compaction->MaxOutputFileSize()) { 
+        //完成了一个Compaction output文件
+        //assert(key.data()[0] == '0');
+        compact->current_output()->largest.DecodeFrom(key);
+        assert(*compact->current_output()->largest.user_key().data() == 0);
+        //LZY:写入实际数据到远程，并将元数据写入compact->output(),删除当前builder
+        status = FinishCompactionOutputFile(compact, input);//LZYHOLD看起来和MN中的处理一样，先不改
+        if (!status.ok()) {
+          break;
+        }
+      }
+    }
+//    assert(key.data()[0] == '0');
+//    if(*key.data() != 0){
+//      printf("break here");
+//    }
+    //TOFIX: The Next will destroy the buffer that key currently rely on if the input reach
+    // an invalid state. I have to use std::string rather than Slice to hold the key.  If not,
+    // the key will be corrupted when assigning it to "largest" in the table metadata.
+    // Or I can make the cahched buffer always a full block size so the deallocaiton is long enogu
+    // to avoid the bug
+    input->Next();
+//    if(*key.data() != 0){
+//      printf("break here");
+//    }
+    //NOTE(ruihong): When the level iterator is invalid it will be deleted and then the key will
+    // be invalid also.
+//    assert(key.data()[0] == '0');
+  }
+  //  reinterpret_cast<TimberSaw::MergingIterator>
+  // You can not call prev here because the iterator is not valid any more
+  //  input->Prev();
+  //  assert(input->Valid());
+#ifndef NDEBUG
+  printf("For compaction, Total number of key touched is %d, KV left is %d\n", number_of_key,
+         Not_drop_counter);
+#endif
+    //  assert(key.data()[0] == '0');
+  if (status.ok() && shutting_down_.load(std::memory_order_acquire)) {
+    status = Status::IOError("Deleting DB during compaction");
+  }
+  if (status.ok() && compact->builder != nullptr) {//LZY:收尾
+    //    assert(key.data()[0] == '0');
+    compact->current_output()->largest.DecodeFrom(key);
+    // The assertion always failed below. need to understand why.
+    assert(*compact->current_output()->largest.user_key().data() == 0);
+    //LZY:写入实际数据到远程，并将元数据写入compact->output(),删除当前builder
+    status = FinishCompactionOutputFile(compact, input);//LZYHOLD看起来和MN中的处理一样，先不改
+  }
+  if (status.ok()) {
+    status = input->status();
+  }
+  delete input;
+  input = nullptr;
+
+
+  //下面的在MN中没有， MN使用了InstallCompactionResultsToComputePreparation(compact);
+  //LZYDELALL,下面全删了,不符合异地的逻辑
+  // undefine_mutex.Lock();
+  // if (status.ok()) {
+  //   std::unique_lock<std::mutex> l(superversion_memlist_mtx, std::defer_lock);
+  //   status = InstallCompactionResults(compact, &l);//LZY:删除老文件，添加新文件的meta
+  //   InstallSuperVersion();//LZYDEL:不应该在异地做该操作
+  // }
+  // undefine_mutex.Unlock();
+
+  // if (status.ok()) {
+  //   for(const auto& iter : *compact->compaction->edit()->GetDeletedFiles()){
+  //     table_cache_->Evict(std::get<1>(iter), std::get<2>(iter));
+  //   }
+  //   for(const auto& iter : *compact->compaction->edit()->GetNewFiles()){
+  //     Iterator* it = versions_->table_cache_->NewIterator(ReadOptions(), iter.second);
+  //     status = it->status();
+  //     delete it;
+  //   }
+  // }
+
+  // if (!status.ok()) {
+  //   RecordBackgroundError(status);
+  // }
+  // VersionSet::LevelSummaryStorage tmp;
+  // Log(options_.info_log, "compacted to: %s", versions_->LevelSummary(&tmp));
+  // // NOtifying all the waiting threads.
+
+  return status;
+}
+void DBImpl::Other_Compaction_Handler(void* arg){//参考Memory_Node_Keeper::sst_compaction_handler
   RDMA_Request* request = ((Arg_for_handler*) arg)->request;
   std::string client_ip = ((Arg_for_handler*) arg)->client_ip;
   uint8_t target_node_id = ((Arg_for_handler*) arg)->target_node_id;
@@ -1298,12 +1484,139 @@ void DBImpl::Other_Compaction_Handler(void* arg){//参考sst_compaction_handler
   uint32_t remote_large_rkey = request->rkey_large;
   unsigned int imm_num = request->imm_num;
   //LZYTODO
+  ibv_mr send_mr;
+  ibv_mr recv_mr;
+  ibv_mr large_recv_mr;
+  ibv_mr large_send_mr;
+  env_->rdma_mg->Allocate_Local_RDMA_Slot(send_mr, Message);
+  env_->rdma_mg->Allocate_Local_RDMA_Slot(recv_mr, Message);
+  env_->rdma_mg->Allocate_Local_RDMA_Slot(large_recv_mr, Version_edit);
+  env_->rdma_mg->Allocate_Local_RDMA_Slot(large_send_mr, Version_edit);
+  assert(request->content.sstCompact.buffer_size < large_recv_mr.length);
+
+  ibv_mr remote_mr;
+  remote_mr.addr = remote_large_prt;
+  remote_mr.rkey = remote_large_rkey;
+  //NOte we have to use the polling mechanism because other wise the read can be finished ealier than we want.
+  volatile char* polling_byte = (char*)large_recv_mr.addr + request->content.sstCompact.buffer_size - 1;
+  memset((void*)polling_byte, 0, 1);
+  asm volatile ("sfence\n" : : );
+  asm volatile ("lfence\n" : : );
+  asm volatile ("mfence\n" : : );
+  // The reason why we have no signal but polling the buffer is that we may poll some completion of other threads RDMA write.
+  env_->rdma_mg->RDMA_Read(&remote_mr, &large_recv_mr,
+                       request->content.sstCompact.buffer_size + 1, client_ip,
+                       0, 0, target_node_id);
+  size_t counter = 0;
+    // polling the finishing bit for compaction task transmission.
+  while (*(unsigned char*)polling_byte == 0){
+    _mm_clflush(polling_byte);
+    asm volatile ("sfence\n" : : );
+    asm volatile ("lfence\n" : : );
+    asm volatile ("mfence\n" : : );//这三条确保之前的存储都被刷新到内存，该加载的也已完成，保证内存的顺序性和一致性-LZY
+    if (counter == 10000){
+      std::fprintf(stderr, "Polling Remote Compaction content\r");
+      std::fflush(stderr);
+      counter = 0;
+    }
+
+    counter++;
+  }
+  Status status;
+  Compaction c(&options_);//LZYHOLD存疑
+  //Note the RDMA read here could read an unfinished RDMA read.
+  //Decode compaction
+  c.DecodeFrom(
+      Slice((char*)large_recv_mr.addr, request->content.sstCompact.buffer_size), 1);//获得Compaction所需的参数
+  printf("remote compaction at level %d, first level of file%d, second level of file %d\n", c.level(), c.num_input_files(0), c.num_input_files(1)); //LZY
+  CompactionState* compact = new CompactionState(&c);
+// #if NEARDATACOMPACTION==2        // Only when there is enough input level files and output level files will the subcompaction triggered
+//   if (usesubcompaction && c.num_input_files(0)>=opts->input0_subcompaction_thr && c.num_input_files(1)>=opts->input1_subcompaction_thr){   
+// #else
+//   if (usesubcompaction && c.num_input_files(0)>=4 && c.num_input_files(1)>=2){ 
+// #endif
+// //    if (usesubcompaction && c.num_input_files(1)>1){
+// //      test_compaction_mutex.lock();
+//     status = DoCompactionWorkWithSubcompaction(compact, client_ip);//返回
+// //      test_compaction_mutex.unlock();
+//     //        status = DoCompactionWork(compact, *client_ip);
+//   }else{
+//     status = DoCompactionWork(compact, client_ip);
+//   }
+  //先不做SubCompaction,之后再说LZYTODO
+  //接下来的CompactionWork应该不和MN完全一样
+  //status = DoCompactionWork(compact, client_ip); //好像本来也用不到client_ip
+  status = DoRemoteCompactionWork(compact,target_node_id);//MN做的时候不涉及通信,应该去参考CN做吧
+  InstallCompactionResultsFor(compact, target_node_id);
+      //TODO:Send back the new created sstables and wait for another reply.
+  std::string serilized_ve;
+#ifndef NDEBUG
+  auto edit_files_vec = compact->compaction->edit()->GetNewFiles();
+  for (auto iter : *edit_files_vec) {
+    assert(iter.second->creator_node_id == rdma_mg->node_id);
+    assert(iter.second->creator_node_id%2 == 0);
+  }
+#endif
+  compact->compaction->edit()->EncodeTo(&serilized_ve);
+//#ifndef NDEBUG
+//    VersionEdit edit;
+//    edit.DecodeFrom((char*)serilized_ve.c_str(), 1);
+//    assert(edit.GetNewFilesNum() > 0 );
+//#endif
+//    *(uint32_t*)large_send_mr.addr = serilized_ve.size();
+//    memset((char*)large_send_mr.addr, 1, 1);
+#ifndef NDEBUG
+  memset((char*)large_send_mr.addr, 0, large_send_mr.length);
+#endif
+
+
+  memcpy((char*)large_send_mr.addr, serilized_ve.c_str(), serilized_ve.size());
+  memset((char*)large_send_mr.addr + serilized_ve.size(), 1, 1);
+  _mm_clflush((char*)large_send_mr.addr + serilized_ve.size());
+  assert(serilized_ve.size() + 1 < large_send_mr.length);
+  *(size_t*)send_mr.addr = serilized_ve.size() + 1;
+
+  // Prepare the receive buffer for the version edit duribility and the file numbers.
+  volatile char* polling_byte_2 = (char*)recv_mr.addr + sizeof(uint64_t);
+  memset((void*)polling_byte_2, 0, 1);
+  asm volatile ("sfence\n" : : );
+  asm volatile ("lfence\n" : : );
+  asm volatile ("mfence\n" : : );
+
+
+  // write back the verison edit size, by the RDMA with immediate
+//    rdma_mg->RDMA_Write_Imme(remote_prt, remote_rkey,
+//                        &send_mr, sizeof(size_t), client_ip,
+//                        IBV_SEND_SIGNALED, 1, imm_num);
+
+//    rdma_mg->RDMA_Write(remote_prt, remote_rkey,
+//                        &send_mr, sizeof(size_t), client_ip,
+//                        IBV_SEND_SIGNALED, 1);
+  _mm_clflush(polling_byte_2);
+  asm volatile ("sfence\n" : : );
+  asm volatile ("lfence\n" : : );
+  asm volatile ("mfence\n" : : );
+  env_->rdma_mg->RDMA_Write_Imme(remote_large_prt, remote_large_rkey,
+                            &large_send_mr, serilized_ve.size() + 1, client_ip,
+                            IBV_SEND_SIGNALED, 1, imm_num, target_node_id);
+#ifndef NDEBUG
+  debug_counter.fetch_add(1);
+#endif
+
+  env_->rdma_mg->Deallocate_Local_RDMA_Slot(send_mr.addr, Message);
+  env_->rdma_mg->Deallocate_Local_RDMA_Slot(recv_mr.addr, Message);
+  env_->rdma_mg->Deallocate_Local_RDMA_Slot(large_recv_mr.addr, Version_edit);
+  env_->rdma_mg->Deallocate_Local_RDMA_Slot(large_send_mr.addr, Version_edit);
+
+  delete request;
+  delete compact;
+  delete (Arg_for_handler*) arg;
 }
 void DBImpl::BGWork_CompactionOthers(void* thread_args){
-  //thread_args是BGThreadMetadata, 里面含.db应该用不上, .func_args有用
+  //thread_args是BGThreadMetadata, 里面含.db, .func_args有用
   //func_args是Arg_for_handler, 里面含{.request=receive_msg_buf, .client_ip = client_ip, .target_node_id = compute_node_id}
   BGThreadMetadata* p = static_cast<BGThreadMetadata*>(thread_args);
-  Other_Compaction_Handler(p->func_args);
+  ((DBImpl*)p->db)->Other_Compaction_Handler(p->func_args);
   delete static_cast<BGThreadMetadata*>(thread_args);
 }
 void DBImpl::BackgroundCall() {//不调用-LZY
@@ -1807,9 +2120,7 @@ void DBImpl::BackgroundCompactionOrDistribute(void *p){
         } else{ //其他CN做
           other_CN_compaction++;
           printf("BackgroundCompactionOrDistribute: otherCN %d Compaction!\n",worknode);
-          
-
-
+          RemoteDataCompaction(c,worknode);
         }
       }//end of need real compaction
     }//end of c!=nullptr
@@ -2062,6 +2373,67 @@ void DBImpl::CleanupCompaction(CompactionState* compact) {
   }
   delete compact;
 }
+Status DBImpl::OpenCompactionOutputFileFor(SubcompactionState* compact,uint8_t target_node_id){
+  //LZYTODO SubCompaction可能不做
+  assert(compact != nullptr);
+  assert(compact->builder == nullptr);
+  uint64_t file_number;
+  {
+    file_number = versions_->NewFileNumber();
+    CompactionOutput out;
+    out.number = file_number;
+    out.smallest.Clear();
+    out.largest.Clear();
+    compact->outputs.push_back(out);
+  }
+
+  // Make the output file
+  //  std::string fname = TableFileName(dbname_, file_number);
+  //  Status s = env_->NewWritableFile(fname, &compact->outfile);
+  Status s = Status::OK();
+  if (s.ok()) {
+    if (compact->compaction->table_type == block_based){
+      compact->builder = new TableBuilder_ComputeSide(
+          options_, Compact, target_node_id);
+    }else{
+      compact->builder = new TableBuilder_BACS(options_, Compact, target_node_id);
+    }
+  }
+  return s;
+}
+Status DBImpl::OpenCompactionOutputFileFor(CompactionState* compact,uint8_t target_node_id){//LZYcontinue
+  //LZYTODO 谨慎对待，每个函数都要仔细看
+  assert(compact != nullptr);
+  assert(compact->builder == nullptr);
+  uint64_t file_number;
+  {
+    //undefine_mutex.Lock();
+    
+    //pending_outputs_.insert(file_number);
+    CompactionOutput out;
+    //file_number = versions_->NewFileNumber();LZYDEL因为MN没在这记录
+    //out.number = file_number;LZYDEL因为MN没在这记录
+    out.smallest.Clear();
+    out.largest.Clear();
+    compact->outputs.push_back(out);//LZY:准备一个out文件放在compact->outputs
+    //undefine_mutex.Unlock();
+  }
+
+  //Make the output file
+  //std::string fname = TableFileName(dbname_, file_number);
+  //Status s = env_->NewWritableFile(fname, &compact->outfile);
+  Status s = Status::OK();
+  if (s.ok()) {
+    if (compact->compaction->table_type == block_based){//never block_based
+      compact->builder = new TableBuilder_ComputeSide(options_, Compact, target_node_id);
+    }else{
+      //printf("Create byte_addressable based SSTables\n");
+      compact->builder = new TableBuilder_BACS(options_, Compact, target_node_id);//在这里与远程内存通信，
+      //target_node_id和BACS中的Rep相关， 但是Rep本身也只是记录
+    } 
+  }
+  return s;
+}
 Status DBImpl::OpenCompactionOutputFile(SubcompactionState* compact) {
   assert(compact != nullptr);
   assert(compact->builder == nullptr);
@@ -2115,7 +2487,7 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {//LZY:准备�
 //  Status s = env_->NewWritableFile(fname, &compact->outfile);
   Status s = Status::OK();
   if (s.ok()) {
-    if (compact->compaction->table_type == block_based){
+    if (compact->compaction->table_type == block_based){//never block_based
 //      printf("Create block based SSTables\n");
       compact->builder = new TableBuilder_ComputeSide(
           options_, Compact, shard_target_node_id);
@@ -2252,7 +2624,64 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact, Iterator* in
   }
   return s;
 }
+Status DBImpl::InstallCompactionResultsFor(CompactionState* compact,uint8_t target_node_id){
+  // Add compaction outputs
+  compact->compaction->AddInputDeletions(compact->compaction->edit());//LZY:删除Compaction中参与的旧文件
+  const int level = compact->compaction->level();
+  //LZY:下面进行新文件的meta更新
+  if (compact->sub_compact_states.size() == 0){//
+    for (size_t i = 0; i < compact->outputs.size(); i++) {//LZY:不含SubCompaction
+      const CompactionOutput& out = compact->outputs[i];
+      std::shared_ptr<RemoteMemTableMetaData> meta = std::make_shared<RemoteMemTableMetaData>(0,table_cache_,target_node_id);
+      //LZYCHA修改了ID为源
 
+      //meta->number = out.number;//LZYDEL MN无
+      meta->level = level+1;
+      meta->file_size = out.file_size;
+      meta->smallest = out.smallest;
+      meta->largest = out.largest;
+      assert(*meta->largest.user_key().data() == 0);
+
+      meta->remote_data_mrs = out.remote_data_mrs;
+      meta->remote_dataindex_mrs = out.remote_dataindex_mrs;
+      meta->remote_filter_mrs = out.remote_filter_mrs;
+      compact->compaction->edit()->AddFile(level + 1, meta);//添加文件
+      meta->table_type = compact->compaction->table_type;
+      assert(!meta->UnderCompaction);
+    }
+  }else{//含subcompaction,估计用不上
+    printf("InstallCompactionResultsFor : you should come here\n");
+    for(auto subcompact : compact->sub_compact_states){
+      for (size_t i = 0; i < subcompact.outputs.size(); i++) {
+        const CompactionOutput& out = subcompact.outputs[i];
+        std::shared_ptr<RemoteMemTableMetaData> meta =
+            std::make_shared<RemoteMemTableMetaData>(0,table_cache_,shard_target_node_id);
+        // TODO make all the metadata written into out
+        meta->number = out.number;
+        meta->file_size = out.file_size;
+        meta->level = level+1;
+        meta->smallest = out.smallest;
+        meta->largest = out.largest;
+        meta->remote_data_mrs = out.remote_data_mrs;
+        meta->remote_dataindex_mrs = out.remote_dataindex_mrs;
+        meta->remote_filter_mrs = out.remote_filter_mrs;
+        meta->table_type = compact->compaction->table_type;
+
+        compact->compaction->edit()->AddFile(level + 1, meta);
+        assert(!meta->UnderCompaction);
+      }
+    }
+  }
+  /* 以下是CN的写法, 考虑让源节点去做
+  lck_sv->lock();
+  //std::unique_lock<std::mutex> lck_vs(versionset_mtx, std::defer_lock); 
+  Status s = versions_->LogAndApply(compact->compaction->edit());
+  compact->compaction->ReleaseInputs();
+  write_stall_cv.notify_all();
+  */
+  Status s = Status::OK();
+  return s;
+}
 Status DBImpl::InstallCompactionResults(CompactionState* compact,
                                         std::unique_lock<std::mutex>* lck_sv) {
 //  assert(false);
@@ -2269,9 +2698,9 @@ Status DBImpl::InstallCompactionResults(CompactionState* compact,
     for (size_t i = 0; i < compact->outputs.size(); i++) {//LZY:不含SubCompaction
       const CompactionOutput& out = compact->outputs[i];
       std::shared_ptr<RemoteMemTableMetaData> meta = std::make_shared<RemoteMemTableMetaData>(0,table_cache_,
-                                                   shard_target_node_id);
+                                                   shard_target_node_id);//LZYTODO需要修改id
       //TODO make all the metadata written into out
-      meta->number = out.number;
+      meta->number = out.number;//MN无
       meta->level = level+1;
       meta->file_size = out.file_size;
       meta->smallest = out.smallest;
@@ -2548,6 +2977,112 @@ void DBImpl::InstallSuperVersion() {
       old_superversion->Cleanup();
     }
   }
+}
+void DBImpl::RemoteDataCompaction(Compaction* c,uint8_t target_node_id){//参考DBImpl::NearDataCompaction
+  std::shared_ptr<RDMA_Manager> rdma_mg = env_->rdma_mg;
+  // register the memory block from the remote memory
+  RDMA_Request* send_pointer;
+  ibv_mr send_mr = {};
+  ibv_mr mr_c = {};
+  ibv_mr receive_mr = {};
+  rdma_mg->Allocate_Local_RDMA_Slot(send_mr, Message);
+  rdma_mg->Allocate_Local_RDMA_Slot(mr_c, Version_edit);
+  rdma_mg->Allocate_Local_RDMA_Slot(receive_mr, Message);
+  std::string serilized_c;
+  DEBUG_arg("Compaction decoded, the first input file number is %lu \n", c->inputs_[0][0]->number);
+  DEBUG_arg("Compaction decoded, input file level is %d \n", c->level());
+  c->EncodeTo(&serilized_c);//c中包含了做Compaction所需的信息-LZY
+
+  assert(serilized_c.size() <= mr_c.length);
+  memcpy(mr_c.addr, serilized_c.c_str(), serilized_c.size());
+  memset((char*)mr_c.addr + serilized_c.size(), 1, 1);
+
+  send_pointer = (RDMA_Request*)send_mr.addr;//在这里进行了发送内容的设定-LZY
+  send_pointer->command = remote_data_compaction; //LZYCHA
+  send_pointer->content.sstCompact.buffer_size = serilized_c.size() + 1;
+  send_pointer->buffer = receive_mr.addr;
+  send_pointer->rkey = receive_mr.rkey;
+  send_pointer->buffer_large = mr_c.addr;//到时候发回的时候就在mr_c了
+  send_pointer->rkey_large = mr_c.rkey;
+
+  uint32_t imm_num = imm_gen->fetch_add(1);
+  // avoid imm_num == 0
+  if (imm_num == 0){
+    imm_num = imm_gen->fetch_add(1);
+  }
+  send_pointer->imm_num = imm_num;
+  // Without persistency we don' need to reply to the remote memory after the compute node
+  // got the version edit.
+  rdma_mg->post_send<RDMA_Request>(&send_mr, target_node_id, std::string("main"));
+  ibv_wc wc[2] = {};
+  if (rdma_mg->poll_completion(wc, 1, std::string("main"), true, target_node_id)){
+    fprintf(stderr, "failed to poll send for remote memory register\n");
+    return;
+  } //发送并等等待结果
+
+  printf("RemoteDataCompaction cp1\n");
+  asm volatile ("sfence\n" : : );
+  asm volatile ("lfence\n" : : );
+  asm volatile ("mfence\n" : : );
+  // polling the finishing bit for the file number transmission.
+  size_t counter = 0;
+  std::unique_lock<std::mutex> lck(*mtx_imme);
+  while (imm_num != *imme_data){//等待任务编号的回收
+    cv_imme->wait(lck);
+  }
+  printf("RemoteDataCompaction cp2\n");
+  size_t buffer_size = *byte_len;
+  *byte_len = 0;
+  *imme_data = 0;
+  assert(*((unsigned char*)mr_c.addr + buffer_size - 1) == 1);
+  assert(*imme_data == 0);
+  lck.unlock();
+
+
+  asm volatile ("sfence\n" : : );
+  asm volatile ("lfence\n" : : );
+  asm volatile ("mfence\n" : : );
+
+  VersionEdit edit(0);
+  edit.DecodeFrom(Slice((char*)mr_c.addr, buffer_size), 0, table_cache_);//从mr_c获得元数据的修改
+#ifndef NDEBUG
+  for(auto iter : *edit.GetNewFiles()){
+    assert(iter.second->shard_target_node_id == shard_target_node_id);
+  }
+#endif
+
+
+  size_t new_file_size = edit.GetNewFilesNum();
+  assert(new_file_size > 0);
+  uint64_t file_number_start = versions_->NewFileNumberBatch(new_file_size);
+  DEBUG_arg("new file number for end is %lu \n", file_number_start);
+  DEBUG_arg("Edit new file number is %lu\n", new_file_size);
+  edit.SetFileNumbers(file_number_start);
+  {
+    std::unique_lock<std::mutex> sv_lck(superversion_memlist_mtx);
+    // TODO: remove the version id argument because we no longer need it.
+//    std::unique_lock<std::mutex> lck_vs(versionset_mtx, std::defer_lock);
+
+    versions_->LogAndApply(&edit);
+    c->ReleaseInputs();
+//    lck_vs.unlock();
+
+    InstallSuperVersion();
+    write_stall_cv.notify_all();
+  }
+
+  for(const auto& iter : *edit.GetDeletedFiles()){
+    table_cache_->Evict(std::get<1>(iter), std::get<2>(iter));
+  }
+
+  for(const auto& iter : *edit.GetNewFiles()){
+    Iterator* it = versions_->table_cache_->NewIterator(ReadOptions(), iter.second);
+    delete it;
+  }
+
+  rdma_mg->Deallocate_Local_RDMA_Slot(send_mr.addr,Message);
+  rdma_mg->Deallocate_Local_RDMA_Slot(mr_c.addr,Version_edit);
+  rdma_mg->Deallocate_Local_RDMA_Slot(receive_mr.addr,Message);
 }
 void DBImpl::NearDataCompaction(Compaction* c) {
   std::shared_ptr<RDMA_Manager> rdma_mg = env_->rdma_mg;

@@ -133,7 +133,7 @@ enum RDMA_Command_Type {
   create_cpu_refresher,
   cpu_utilization_heartbeat,
   benchmark_finish,
-  compaction_others
+  remote_data_compaction
 };
 enum file_type { log_type, others };
 struct fs_sync_command {

@@ -314,8 +314,9 @@ class DBImpl : public DB{
   void MaybeScheduleFlushOrCompaction() EXCLUSIVE_LOCKS_REQUIRED(undefine_mutex);
   static void BGWork_Flush(void* thread_args);
   static void BGWork_Compaction(void* thread_args);
-  void Other_Compaction_Handler(void* arg);
-  void BGWork_CompactionOthers(void* thread_args);//LZYADD
+  void Other_Compaction_Handler(void* arg);//LZYADD
+  static void BGWork_CompactionOthers(void* thread_args);//LZYADD
+  Status DoRemoteCompactionWork(CompactionState* compact,uint8_t target_node_id) EXCLUSIVE_LOCKS_REQUIRED(undefine_mutex); //LZYADD 
   void BackgroundCall();
   void BackgroundFlush(void* p);
   void BackgroundCompaction(void* p) EXCLUSIVE_LOCKS_REQUIRED(undefine_mutex);
@@ -334,6 +335,8 @@ class DBImpl : public DB{
   //TODO: We could probably use corotine to do the compaction because the compaction for
   // large key value size can have large cpu stall time for memroy copy.
   Status DoCompactionWorkWithSubcompaction(CompactionState* compact);
+  Status OpenCompactionOutputFileFor(SubcompactionState* compact,uint8_t target_node_id);//LZYADD
+  Status OpenCompactionOutputFileFor(CompactionState* compact,uint8_t target_node_id);//LZYADD
   Status OpenCompactionOutputFile(SubcompactionState* compact);
   Status OpenCompactionOutputFile(CompactionState* compact);
   Status FinishCompactionOutputFile(SubcompactionState* compact,
@@ -342,12 +345,13 @@ class DBImpl : public DB{
   Status InstallCompactionResults(CompactionState* compact,
                                   std::unique_lock<std::mutex>* lck_sv)
       EXCLUSIVE_LOCKS_REQUIRED(undefine_mutex);
+  Status InstallCompactionResultsFor(CompactionState* compact,uint8_t target_node_id);//LZYADD
   Status TryInstallMemtableFlushResults(
       FlushJob* job, VersionSet* vset,
       std::shared_ptr<RemoteMemTableMetaData>& sstable, VersionEdit* edit);
 //  SuperVersion* GetReferencedSuperVersion(DBImpl* db);
-
   void NearDataCompaction(Compaction* c);
+  void RemoteDataCompaction(Compaction* c,uint8_t target_node_id);//LZYADD
 //  void Communication_To_Home_Node();
   void Edit_sync_to_remote(VersionEdit* edit, uint8_t target_node_id);
   const Comparator* user_comparator() const {
@@ -370,6 +374,14 @@ class DBImpl : public DB{
   uint32_t* imme_data;
   uint32_t* byte_len;
   std::condition_variable* cv_imme;
+
+  //LZYADD ↓
+  std::unordered_map<uint8_t, std::mutex*> CN_mtx_imme;
+  std::unordered_map<uint8_t,  std::atomic<uint32_t>*> CN_imm_gen;
+  std::unordered_map<uint8_t, uint32_t*> CN_imme_data;
+  std::unordered_map<uint8_t, uint32_t*> CN_byte_len;
+  std::unordered_map<uint8_t, std::condition_variable*> CN_cv_imme;
+  //LZYADD ↑
 
 
   const InternalKeyComparator internal_comparator_;
