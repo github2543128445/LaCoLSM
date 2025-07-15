@@ -93,9 +93,12 @@ class MergingIterator : public Iterator {
 #ifndef NDEBUG
     if (Valid()){
       if (num_entries > 0) {
-//        printf("key is %.*s look at here\n", 29, key().data());
-//        printf("key length is %zu" , key().size());
-//        printf("key char pointer is %p", key().data());
+        // printf("last key =");
+        // for(int i = 0;i<last_key.length();i++) printf(" %u",last_key[i]);
+        // printf(", now key =");
+        // std::string ts = current_->key().ToString();
+        // for(int i = 0;i<ts.length();i++) printf(" %u",ts[i]);
+        // printf("\n");
         assert(comparator_->Compare(key(), Slice(last_key)) > 0);
       }
       num_entries++;

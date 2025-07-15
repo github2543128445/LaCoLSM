@@ -1496,6 +1496,7 @@ Status Memory_Node_Keeper::InstallCompactionResultsToComputePreparation(
       // TOFIX: memory leak for new RDMA request()
       RDMA_Request* receive_msg_buf = new RDMA_Request();
       *receive_msg_buf = *(RDMA_Request*)recv_mr[buffer_position].addr; //下面要读取Receive的内容了 -LZY
+      //printf("\"receive\" data size = %d\n",sizeof(receive_msg_buf));
 //      memcpy(receive_msg_buf, recv_mr[buffer_position].addr, sizeof(RDMA_Request));
 
       // copy the pointer of receive buf to a new place because
@@ -2199,16 +2200,13 @@ printf("server_sock_connect : servername %s. port %d\n",servername,port);
 
     CompactionState* compact = new CompactionState(&c);
     //LZY change v
-#if NEARDATACOMPACTION==2        // Only when there is enough input level files and output level files will the subcompaction triggered
-    if (usesubcompaction && c.num_input_files(0)>=opts->input0_subcompaction_thr && c.num_input_files(1)>=opts->input1_subcompaction_thr){   
-#else
+// #if NEARDATACOMPACTION==2        // Only when there is enough input level files and output level files will the subcompaction triggered
+//     if (usesubcompaction && c.num_input_files(0)>=opts->input0_subcompaction_thr && c.num_input_files(1)>=opts->input1_subcompaction_thr){   
+// #else
+//     if (usesubcompaction && c.num_input_files(0)>=4 && c.num_input_files(1)>=2){ 
+// #endif
     if (usesubcompaction && c.num_input_files(0)>=4 && c.num_input_files(1)>=2){ 
-#endif
-//    if (usesubcompaction && c.num_input_files(1)>1){
-//      test_compaction_mutex.lock();
       status = DoCompactionWorkWithSubcompaction(compact, client_ip);//返回
-//      test_compaction_mutex.unlock();
-      //        status = DoCompactionWork(compact, *client_ip);
     }else{
       status = DoCompactionWork(compact, client_ip);
     }
@@ -2262,6 +2260,7 @@ printf("server_sock_connect : servername %s. port %d\n",servername,port);
     asm volatile ("sfence\n" : : );
     asm volatile ("lfence\n" : : );
     asm volatile ("mfence\n" : : );
+    //printf("\"Send\" back task result size = %d\n", serilized_ve.size());
     rdma_mg->RDMA_Write_Imme(remote_large_prt, remote_large_rkey,
                              &large_send_mr, serilized_ve.size() + 1, client_ip,
                              IBV_SEND_SIGNALED, 1, imm_num, target_node_id);

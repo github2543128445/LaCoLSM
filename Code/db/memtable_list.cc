@@ -387,7 +387,7 @@ void MemTableList::PickMemtablesToFlush(autovector<MemTable*>* mems) {//在快�
         break;
     }
   }
-  DEBUG_arg("table picked is %d", table_counter);
+  DEBUG_arg("table picked is %d\n", table_counter);
   if (!atomic_flush || num_flush_not_started_ == 0) {
     flush_requested_ = false;  // start-flush request is complete
   }
@@ -540,7 +540,7 @@ void MemTableList::Add(MemTable* m) {
   current_.load()->Add(m);
   // Add memtable number atomically.
   current_memtable_num_.fetch_add(1);
-  DEBUG_arg("Add a new file, current immtable number is %lu", current_memtable_num_.load());
+  DEBUG_arg("Add a new file, current immtable number is %lu\n", current_memtable_num_.load());
   m->SetFlushState(MemTable::FLUSH_REQUESTED);
   num_flush_not_started_.fetch_add(1);
   if (num_flush_not_started_ == 1) {

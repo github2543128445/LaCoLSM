@@ -1706,7 +1706,7 @@ Iterator* VersionSet::MakeInputIteratorMemoryServer(Compaction* c) {
 //  return sst->UnderCompaction;
 //}
 // TODO: Implement the file picking up for those file who exceed their peeking limit.
-bool VersionSet::PickLevel0FilePlanA(int level, Compaction* c, Version* current_snap){
+bool VersionSet::PickLevel0FilePlanA(int level, Compaction* c, Version* current_snap){//LZY:default
   // if there is pending compaction, skip level 0
   if (current_snap->in_progress[level].size()>0){//LZY:有工作就先处理
 //      assert(current_->levels_[level][0]->UnderCompaction);
@@ -1852,7 +1852,7 @@ bool VersionSet::PickFileToCompact(int level, Compaction* c,  //LZY:得到需要
   //assert(c->inputs_[1].empty());
 #if NEARDATACOMPACTION == 2
   if(level == 0){
-    return PickLevel0FilePlanA(level,c, current_snap);//他妈的，根本没法分，选所有level0层是因为确实所有level0都会重叠，日他娘
+    return PickLevel0FilePlanA(level,c, current_snap);//根本没法分，选所有level0层是因为确实所有level0都会重叠
   }
   else {//LZY：非level0层
     size_t current_level_size = current_snap->levels_[level].size();

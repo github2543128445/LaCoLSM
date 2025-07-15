@@ -695,6 +695,14 @@ void RDMA_Manager::compute_message_handling_thread(std::string q_id, uint8_t sha
         post_receive<RDMA_Request>(&recv_mr[buffer_counter],shard_target_node_id,"main");
         remote_cpu_util_heart_beater_receiver(receive_msg_buf,
                                               shard_target_node_id);
+      } else if (receive_msg_buf->command == create_qp_) {
+        printf("positive: Why you create_qp_?\n");
+        post_receive<RDMA_Request>(&recv_mr[buffer_counter],shard_target_node_id,"main");
+        CN_create_qp_handler(receive_msg_buf, "main", shard_target_node_id);
+      } else if (receive_msg_buf->command == create_mr_) {
+        printf("positive: Why you create_mr_?\n");
+        post_receive<RDMA_Request>(&recv_mr[buffer_counter],shard_target_node_id,"main");
+        CN_create_mr_handler(receive_msg_buf, "main", shard_target_node_id);
       } else if(receive_msg_buf->command == benchmark_finish) {
         // handle the heartbeat, record the cpu utilization and core number of the remote memory
         post_receive<RDMA_Request>(&recv_mr[buffer_counter],shard_target_node_id,"main");
@@ -708,9 +716,8 @@ void RDMA_Manager::compute_message_handling_thread(std::string q_id, uint8_t sha
         db_owner->env_->Schedule(DBImpl::BGWork_CompactionOthers, static_cast<void*>(thread_pool_args), ThreadPoolType::CompactionThreadPool);
       } else {//一开始会瞎发东西, 不知道是啥导致的, 然后被向主的方向就断了
         post_receive<RDMA_Request>(&recv_mr[buffer_counter], shard_target_node_id, "main");
-        printf("compute_message_handling_thread: corrupt message from node %d, command = %d\n",shard_target_node_id,receive_msg_buf->command); //LZY delete
-        printf("but get util = %lf\n",receive_msg_buf->content.cpu_info.cpu_util);
-        // break;
+        printf("compute_message_handling_thread: corrupt message from node %d, command = %d\n",shard_target_node_id,receive_msg_buf->command); 
+        break;
       }
       // increase the buffer index
       if (buffer_counter== R_SIZE-1 ){
@@ -733,7 +740,6 @@ void RDMA_Manager::compute_message_handling_thread(std::string q_id, uint8_t sha
 }
 void RDMA_Manager::remote_cpu_util_heart_beater_receiver(RDMA_Request* request, uint8_t target_node_id) {
 
-  assert(request->command == cpu_utilization_heartbeat);
   //todo(ruihong): use UNLIKELY()
   if (!remote_core_number_received.load())[[unlikely]]{
     std::unique_lock<std::mutex> lck(remote_core_number_map_mtx);
@@ -1316,7 +1322,6 @@ void RDMA_Manager::passive_communication_thread(std::string client_ip, int socke
     //compute_message_handling_thread("main", compute_node_id);
     //LZY 下面是参考MN节点的实现方式， 和上面的compute_message_handling_thread二选一
     //直接复用compute_message_handling_thread会导致小的向大的发不了
-    RPC_handler_thread_ready_num.fetch_add(1);
 
     std::mutex* mtx_imme = mtx_imme_map.at(compute_node_id);
     std::atomic<uint32_t>* imm_gen = imm_gen_map.at(compute_node_id);
@@ -1381,6 +1386,14 @@ void RDMA_Manager::passive_communication_thread(std::string client_ip, int socke
         post_receive<RDMA_Request>(&recv_mr[buffer_position],compute_node_id,client_ip);
         finished_node[compute_node_id] = true;
         printf("passive_communication_thread: node %d finish benchmark\n",compute_node_id);
+      } else if (receive_msg_buf->command == create_qp_) {
+        printf("passive: Why you create_qp_?\n");
+        post_receive<RDMA_Request>(&recv_mr[buffer_position],compute_node_id,client_ip);
+        CN_create_qp_handler(receive_msg_buf, client_ip, compute_node_id);
+      } else if (receive_msg_buf->command == create_mr_) {
+        printf("passive: Why you create_mr_?\n");
+        post_receive<RDMA_Request>(&recv_mr[buffer_position],compute_node_id,client_ip);
+        CN_create_mr_handler(receive_msg_buf, client_ip, compute_node_id);
       } else if(receive_msg_buf->command == remote_data_compaction){
         post_receive<RDMA_Request>(&recv_mr[buffer_position],compute_node_id,client_ip);
         //LZYTODO 目前瞎写的
@@ -1389,9 +1402,8 @@ void RDMA_Manager::passive_communication_thread(std::string client_ip, int socke
         db_owner->env_->Schedule(DBImpl::BGWork_CompactionOthers, static_cast<void*>(thread_pool_args), ThreadPoolType::CompactionThreadPool);
       } else {//一开始会瞎发东西, 不知道是啥导致的, 然后被向主的方向就断了
         post_receive<RDMA_Request>(&recv_mr[buffer_position], compute_node_id, client_ip);
-        printf("compute_message_handling_thread: corrupt message from node %d, command = %d\n",compute_node_id,receive_msg_buf->command); //LZY delete
-        printf("but get util = %lf\n",receive_msg_buf->content.cpu_info.cpu_util);
-        // break;
+        printf("passive_communication_thread: corrupt message from node %d, command = %d\n",compute_node_id,receive_msg_buf->command); 
+        break;
       }
 
       if (buffer_position == R_SIZE-1 ){
@@ -2390,7 +2402,7 @@ int RDMA_Manager::RDMA_Read(ibv_mr* remote_mr, ibv_mr* local_mr,
     // std::printf("Poll completion (Read) time elapse is %zu\n",  duration.count());
     if (rc != 0) {
       std::cout << "RDMA Read Failed" << std::endl;
-      std::cout << "q id is" << qp_type << std::endl;
+      std::cout << "q id is " << qp_type << std::endl;
       fprintf(stdout, "QP number=0x%x\n", res->qp_map[target_node_id]->qp_num);
     }
     delete[] wc;
@@ -2480,7 +2492,7 @@ int RDMA_Manager::RDMA_Write(ibv_mr* remote_mr, ibv_mr* local_mr,
     rc = poll_completion(wc, poll_num, qp_type, true, 0);
     if (rc != 0) {
       std::cout << "RDMA Write Failed" << std::endl;
-      std::cout << "q id is" << qp_type << std::endl;
+      std::cout << "q id is " << qp_type << std::endl;
       fprintf(stdout, "QP number=0x%x\n", res->qp_map[target_node_id]->qp_num);
       exit(0);
     }
@@ -2562,7 +2574,7 @@ int RDMA_Manager::RDMA_Write(void* addr, uint32_t rkey, ibv_mr* local_mr,
       rc = poll_completion(wc, poll_num, qp_type, true, target_node_id);
       if (rc != 0) {
         std::cout << "RDMA Write Failed" << std::endl;
-        std::cout << "q id is" << qp_type << std::endl;
+        std::cout << "q id is " << qp_type << std::endl;
         fprintf(stdout, "QP number=0x%x\n", res->qp_map[target_node_id]->qp_num);
         exit(0);
       }else{
@@ -2650,7 +2662,7 @@ int RDMA_Manager::RDMA_Write_Imme(void* addr, uint32_t rkey, ibv_mr* local_mr,
     rc = poll_completion(wc, poll_num, qp_type, true, target_node_id);
     if (rc != 0) {
       std::cout << "RDMA Write Failed" << std::endl;
-      std::cout << "q id is" << qp_type << std::endl;
+      std::cout << "q id is " << qp_type << std::endl;
       fprintf(stdout, "QP number=0x%x\n", res->qp_map[target_node_id]->qp_num);
       exit(0);
     }else{

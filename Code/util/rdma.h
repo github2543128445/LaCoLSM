@@ -354,6 +354,94 @@ class RDMA_Manager {
     printf("All nodes' benchmark finished, exit...\n");
     return;
   }
+  void CN_create_qp_handler(RDMA_Request* request, std::string client_ip,uint8_t target_node_id) {//参考Memory_Node_Keeper::create_qp_handler LZYADD
+    printf("CN_create_qp_handler:cp0\n");
+    int rc;
+    DEBUG("Create new qp\n");
+    assert(request->buffer != nullptr);
+    assert(request->rkey != 0);
+    char gid_str[17];
+    memset(gid_str, 0, 17);
+    memcpy(gid_str, request->content.qp_config.gid, 16);
+
+    // create a unique id for the connection from the compute node
+    std::string new_qp_id = std::string(gid_str) +
+      std::to_string(request->content.qp_config.lid) +
+      std::to_string(request->content.qp_config.qp_num);
+
+    //  std::cout << "create query pair command receive for" << client_ip
+    //  << std::endl;
+    //  fprintf(stdout, "Remote QP number=0x%x\n",
+    //          request->content.qp_config.qp_num);
+    //  fprintf(stdout, "Remote LID = 0x%x\n",
+    //          request->content.qp_config.lid);
+    ibv_mr send_mr;
+    Allocate_Local_RDMA_Slot(send_mr, Message);
+    RDMA_Reply* send_pointer = (RDMA_Reply*)send_mr.addr;
+    printf("CN_create_qp_handler:cp1\n");
+    ibv_qp* qp = create_qp_Mside(false, new_qp_id);//LZYHOLD 说不定能直接用
+    if (rdma_config.gid_idx >= 0) {
+      rc = ibv_query_gid(res->ib_ctx, rdma_config.ib_port,rdma_config.gid_idx, &(res->my_gid));
+      if (rc) {
+        fprintf(stderr, "CN_create_qp_handler: could not get gid for port %d, index %d\n",
+          rdma_config.ib_port, rdma_config.gid_idx);
+        return;
+      }
+    } else
+    memset(&(res->my_gid), 0, sizeof(res->my_gid));
+    /* exchange using TCP sockets info required to connect QPs */
+    send_pointer->content.qp_config.qp_num =
+    qp_map_Mside[new_qp_id]->qp_num;
+    send_pointer->content.qp_config.lid = res->port_attr.lid;
+    memcpy(send_pointer->content.qp_config.gid, &(res->my_gid), 16);
+    send_pointer->received = true;
+    registered_qp_config* remote_con_data = new registered_qp_config(request->content.qp_config);
+    printf("CN_create_qp_handler:cp2\n");
+    std::shared_lock<std::shared_mutex> l1(qp_cq_map_mutex);
+    //keep the remote qp information
+    qp_main_connection_info_Mside.insert({new_qp_id,remote_con_data});
+    printf("CN_create_qp_handler:cp3\n");
+    connect_qp_Mside(qp, new_qp_id);
+    printf("CN_create_qp_handler:cp4\n");
+
+    RDMA_Write(request->buffer, request->rkey, &send_mr,
+    sizeof(RDMA_Reply), client_ip, IBV_SEND_SIGNALED, 1, target_node_id);
+    printf("CN_create_qp_handler:cp5\n");
+    Deallocate_Local_RDMA_Slot(send_mr.addr, Message);
+    delete request;
+    printf("CN_create_qp_handler:end\n");
+  }
+  void CN_create_mr_handler(RDMA_Request* request, //参考Memory_Node_Keeper::create_mr_handler LZYADD
+      std::string client_ip,
+      uint8_t target_node_id) {
+    DEBUG("Create new mr\n");
+    //  std::cout << "create memory region command receive for" << client_ip
+    //  << std::endl;
+    //TODO: consider the edianess of the RDMA request and reply.
+    printf("CN_create_mr_handler:cp0\n");
+    ibv_mr send_mr;
+    Allocate_Local_RDMA_Slot(send_mr, Message);
+    RDMA_Reply* send_pointer = (RDMA_Reply*)send_mr.addr;
+    printf("CN_create_mr_handler:cp1\n");
+    ibv_mr* mr = nullptr;
+    char* buff;
+    {
+      std::unique_lock<std::shared_mutex> lck(local_mem_mutex);
+      if (!Local_Memory_Register(&buff, &mr, request->content.mem_size,No_Use_Default_chunk)) {
+        fprintf(stderr, "memory registering failed by size of 0x%x\n",
+        static_cast<unsigned>(request->content.mem_size));
+      }
+    }
+    printf("CN_create_mr_handler:cp2\n");
+    send_pointer->content.mr = *mr;
+    send_pointer->received = true;
+
+    RDMA_Write(request->buffer, request->rkey, &send_mr, sizeof(RDMA_Reply), client_ip, IBV_SEND_SIGNALED, 1, target_node_id);
+    printf("CN_create_mr_handler:cp3\n");
+    Deallocate_Local_RDMA_Slot(send_mr.addr, Message);
+    delete request;
+  }
+  // Return the cpu utilization of memory node in the RDMA_Reply
   std::map<uint8_t,double> Remote_utilization;
   std::map<uint8_t,std::mutex> Remote_uti_mtx;
   std::map<uint8_t,std::deque<double>> Remote_uti_q;
@@ -381,7 +469,8 @@ class RDMA_Manager {
         double p90 = Remote_uti_q[item.first][Remote_uti_q[item.first].size()*0.9];
         double p99 = Remote_uti_q[item.first][Remote_uti_q[item.first].size()*0.99];
         double p999 = Remote_uti_q[item.first][Remote_uti_q[item.first].size()*0.999];
-        printf("///Remote Node %d uti: av = %lf,P50 = %lf,P90 = %lf,P99 = %lf,P999 = %lf///\n",item.first,av_uti,p50,p90,p99,p999);
+        if(item.first%2==0) printf("///MN Node %d uti: av = %lf,P50 = %lf,P90 = %lf,P99 = %lf,P999 = %lf///\n",item.first,av_uti,p50,p90,p99,p999);
+        else printf("///Remote CN Node %d uti: av = %lf,P50 = %lf,P90 = %lf,P99 = %lf,P999 = %lf///\n",item.first,av_uti,p50,p90,p99,p999);
       }
     }
     if(!local_uti_q.empty()){
@@ -391,7 +480,7 @@ class RDMA_Manager {
       double p90 = local_uti_q[local_uti_q.size()*0.9];
       double p99 = local_uti_q[local_uti_q.size()*0.99];
       double p999 = local_uti_q[local_uti_q.size()*0.999];
-      printf("///local uti: av = %lf,P50 = %lf,P90 = %lf,P99 = %lf,P999 = %lf///\n",av_uti,p50,p90,p99,p999);
+      printf("///Local CN Node %d uti: av = %lf,P50 = %lf,P90 = %lf,P99 = %lf,P999 = %lf///\n",node_id,av_uti,p50,p90,p99,p999);
     }
   }
 //LZY add ^
