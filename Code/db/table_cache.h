@@ -87,7 +87,7 @@ class TableCache {
              void (*handle_result)(void*, const Slice&, const Slice&));
 
   // Evict any entry for the specified file number
-  void Evict(uint64_t file_number, uint8_t creator_node_id);
+  void Evict(uint64_t file_number, uint8_t belong_node_id);
   double CheckUtilizaitonOfCache(){
 #if TABLE_STRATEGY==2
     double util = static_cast<double>(cache_->TotalCharge())/ (static_cast<double>(cache_->GetCapacity())/TABLE_CACHE_SCALING_FACTOR);

@@ -710,7 +710,6 @@ void RDMA_Manager::compute_message_handling_thread(std::string q_id, uint8_t sha
         printf("compute_message_handling_thread: node %d finish benchmark\n",shard_target_node_id);
       } else if(receive_msg_buf->command == remote_data_compaction){
         post_receive<RDMA_Request>(&recv_mr[buffer_counter],shard_target_node_id,"main");
-        //LZYTODO 先有这么个东西,胡写的
         Arg_for_handler* argforhandler = new Arg_for_handler{.request=receive_msg_buf, .client_ip = "main", .target_node_id = shard_target_node_id};
         BGThreadMetadata* thread_pool_args = new BGThreadMetadata{.db = db_owner, .func_args = argforhandler};
         db_owner->env_->Schedule(DBImpl::BGWork_CompactionOthers, static_cast<void*>(thread_pool_args), ThreadPoolType::CompactionThreadPool);
@@ -1396,7 +1395,6 @@ void RDMA_Manager::passive_communication_thread(std::string client_ip, int socke
         CN_create_mr_handler(receive_msg_buf, client_ip, compute_node_id);
       } else if(receive_msg_buf->command == remote_data_compaction){
         post_receive<RDMA_Request>(&recv_mr[buffer_position],compute_node_id,client_ip);
-        //LZYTODO 目前瞎写的
         Arg_for_handler* argforhandler = new Arg_for_handler{.request=receive_msg_buf, .client_ip = client_ip, .target_node_id = compute_node_id};
         BGThreadMetadata* thread_pool_args = new BGThreadMetadata{.db = db_owner, .func_args = argforhandler};
         db_owner->env_->Schedule(DBImpl::BGWork_CompactionOthers, static_cast<void*>(thread_pool_args), ThreadPoolType::CompactionThreadPool);

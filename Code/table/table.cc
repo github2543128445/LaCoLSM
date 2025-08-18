@@ -55,19 +55,19 @@ Status Table::Open(const Options& options, Table** table,
 
     }
     Rep* rep = new Table::Rep(options);
-//    rep->options = options;
-//    rep->file = file;
+    //rep->options = options;
+    //rep->file = file;
     rep->remote_table = Remote_table_meta;
-//    rep->metaindex_handle = footer.metaindex_handle();
+    //rep->metaindex_handle = footer.metaindex_handle();
     rep->index_block = index_block;
     assert(rep->index_block->size() > 0);
     rep->cache_id = (options.block_cache ? options.block_cache->NewId() : 0);
-//    rep->filter_data = nullptr;
+    //rep->filter_data = nullptr;
     rep->filter = nullptr;
 
     *table = new Table(rep);
     (*table)->ReadFilter();
-//    (*table)->ReadMeta(footer);
+    //(*table)->ReadMeta(footer);
   }else{
     assert(false);
   }

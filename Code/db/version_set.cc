@@ -662,7 +662,7 @@ double Version::CompactionScore(int i) { return compaction_score_[i]; }
 int Version::CompactionLevel(int i) { return compaction_level_[i]; }
 std::shared_ptr<RemoteMemTableMetaData> Version::FindFileByNumber(int level, uint64_t file_number, uint8_t node_id) {
   for(auto iter :levels_[level]){
-    if (iter->number == file_number && iter->creator_node_id == node_id)
+    if (iter->number == file_number && iter->belong_node_id == node_id)
       return iter;
   }
   assert(false);
@@ -738,6 +738,49 @@ class VersionSet::Builder {
 
   // Apply all of the edits in *edit to the current state.
   //TODO(ruihong): change it back to no current validation.
+  void Apply3(VersionEdit* edit, Version* current,uint8_t target_node_id) {//LZY:将新添加的文件最终 levels_[level].added_files->insert(f);
+    assert(current = base_);
+    // Update compaction pointers
+    for (size_t i = 0; i < edit->compact_pointers_.size(); i++) {
+      const int level = edit->compact_pointers_[i].first;
+      vset_->compact_index_[level] =
+          edit->compact_pointers_[i].second.Encode().ToString();
+    }
+
+    // Delete files
+    for (const auto& deleted_file_set_kvp : edit->deleted_files_) {
+      const int level = std::get<0>(deleted_file_set_kvp);
+      const uint64_t number = std::get<1>(deleted_file_set_kvp);
+      const uint8_t node_id = std::get<2>(deleted_file_set_kvp);
+      levels_[level].deleted_files.insert({number, node_id});
+      printf("VersionSet::Apply: Delete file Level is %d, Num is %lu, Belong_node_id is %d\n", level, number, node_id);
+    }
+
+    // Add new files
+    for (size_t i = 0; i < edit->new_files_.size(); i++) {
+      const int level = edit->new_files_[i].first;
+      std::shared_ptr<RemoteMemTableMetaData> f = edit->new_files_[i].second;
+
+      assert(level == f->level);
+      assert(f.get()!= nullptr);
+   
+      f->allowed_seeks = static_cast<int>((f->file_size / 16384U));//LZY: x*16KB
+      if (f->allowed_seeks < 100) f->allowed_seeks = 100;
+      // if (levels_[level].deleted_files.find(f->number)!= levels_[level].deleted_files.end()){
+      //   printf("VesrsionSet::Apply: !!!Add file and Deleted!!!, Level is %d, Num is %lu, Belong_node_id is %d\n", level, f->number, f->belong_node_id);
+      // }
+      // std::pair <std::multimap<uint64_t, uint8_t>::iterator, std::multimap<uint64_t ,uint8_t>::iterator>
+      // ret = levels_[level].deleted_files.equal_range(f->number);//找所有number一致的文件
+      // for (std::multimap<uint64_t, uint8_t>::iterator it=ret.first; it!=ret.second; ++it){
+      //   if (it->second == f->belong_node_id){
+      //     levels_[level].deleted_files.erase(it);
+      //     printf("VesrsionSet::Apply: !!!Add file and Deleted, erase it!!!, Level is %d, Num is %lu, Belong_node_id is %d\n", level, f->number, f->belong_node_id);
+      //   }
+      // }
+      levels_[level].added_files->insert(f);
+      printf("VesrsionSet::Apply: Add file, Level is %d, Num is %lu, Belong_node_id is %d\n", level, f->number, f->belong_node_id);
+    }
+  }
   void Apply(VersionEdit* edit, Version* current) {//LZY:将新添加的文件最终 levels_[level].added_files->insert(f);
     assert(current = base_);
     // Update compaction pointers
@@ -753,7 +796,7 @@ class VersionSet::Builder {
       const uint64_t number = std::get<1>(deleted_file_set_kvp);
       const uint8_t node_id = std::get<2>(deleted_file_set_kvp);
       levels_[level].deleted_files.insert({number, node_id});
-//      printf("level %d, number %lu\n", level, number);
+      printf("VersionSet::Apply: Delete file Level is %d, Num is %lu, Belong_node_id is %d\n", level, number, node_id);
     }
 //    printf("Apply: level 0 deleted file size %lu\n", levels_[0].deleted_files.size());
 //    printf("Apply: level 1 deleted file size %lu\n", levels_[1].deleted_files.size());
@@ -783,21 +826,90 @@ class VersionSet::Builder {
       if (f->allowed_seeks < 100) f->allowed_seeks = 100;
       //Tothink: Why we have delete file here
       if (levels_[level].deleted_files.find(f->number)!= levels_[level].deleted_files.end()){
-        printf("Look at here\n");
+        printf("VesrsionSet::Apply: !!!Add file and Deleted!!!, Level is %d, Num is %lu, Belong_node_id is %d\n", level, f->number, f->belong_node_id);
       }
       std::pair <std::multimap<uint64_t, uint8_t>::iterator, std::multimap<uint64_t ,uint8_t>::iterator>
-      ret = levels_[level].deleted_files.equal_range(f->number);
+      ret = levels_[level].deleted_files.equal_range(f->number);//找所有number一致的文件
       for (std::multimap<uint64_t, uint8_t>::iterator it=ret.first; it!=ret.second; ++it){
-        if (it->second == f->creator_node_id)
+        if (it->second == f->belong_node_id){
           levels_[level].deleted_files.erase(it);
+          printf("VesrsionSet::Apply: !!!Add file and Deleted, erase it!!!, Level is %d, Num is %lu, Belong_node_id is %d\n", level, f->number, f->belong_node_id);
+        }
+        
       }
       levels_[level].added_files->insert(f);
+      printf("VesrsionSet::Apply: Add file, Level is %d, Num is %lu, Belong_node_id is %d\n", level, f->number, f->belong_node_id);
       //TODO: Why deleted file will be be remove from deletedfiles if it exist in added file
-
-  //      printf("Apply2: level 1 deleted file size %lu\n", levels_[1].deleted_files.size());
+      //printf("Apply2: level 1 deleted file size %lu\n", levels_[1].deleted_files.size());
     }
   }
+    void SaveTo3(Version* v,uint8_t target_node_id) {//LZY:将VersionSet->中的added_files和base_->levels_中的文件整合添加到v，无论是L0还是其他，都是按照排序后的添加的
+//    printf("SaveTo: level 1 deleted file size %lu\n", levels_[1].deleted_files.size());
+    BySmallestKey cmp;
+    cmp.internal_comparator = &vset_->icmp_;
+    for (int level = 0; level < config::kNumLevels; level++) {
+      // Merge the set of added files with the set of pre-existing files.
+      // Drop any deleted files.  Store the result in *v.
+      const std::vector<std::shared_ptr<RemoteMemTableMetaData>>& base_files = base_->levels_[level];
+//      const std::vector<std::shared_ptr<RemoteMemTableMetaData>>& base_in_progress = base_->levels_[level];
+      std::vector<std::shared_ptr<RemoteMemTableMetaData>>::const_iterator base_iter = base_files.begin();
+      std::vector<std::shared_ptr<RemoteMemTableMetaData>>::const_iterator base_end = base_files.end();
+      const FileSet* added_files = levels_[level].added_files;
+      v->levels_[level].reserve(base_files.size() + added_files->size());
+      //TOTHINK: how could this make sure the order in level 0.
+      // Answer: they are not organized by order, instead the organized by key,
+      // but whensearcg level 0 the reader will order the table be filenumber and then
+      // iterate in the order of file number.
+      // All the levels are oganized by key smallest key order
+#ifndef NDEBUG
+      if (!levels_[level].deleted_files.empty())
+        printf("contain deleted file at level %d\n", level);
+#endif
+      for (const auto& added_file : *added_files) {
+        //Mark the file as not under compaction.
+        added_file->UnderCompaction = false;
+        // Add all smaller files listed in base_
+        for (std::vector<std::shared_ptr<RemoteMemTableMetaData>>::const_iterator bpos =
+                 std::upper_bound(base_iter, base_end, added_file, cmp);
+             base_iter != bpos; ++base_iter) {
+          //Ruihong: why the builder will push back the base_iter to the level?
+          //Because the code tries to build the version from the scratch
+          MaybeAddFile(v, level, *base_iter);
+        }
 
+        MaybeAddFile(v, level, added_file);
+      }
+
+      // Add remaining base files
+      for (; base_iter != base_end; ++base_iter) {
+        MaybeAddFile(v, level, *base_iter);
+      }
+
+#ifndef NDEBUG
+
+      // Make sure there is no overlap in levels > 0
+      if (level > 0) {
+        for (uint32_t i = 1; i < v->levels_[level].size(); i++) {
+          const InternalKey& prev_end = v->levels_[level][i - 1]->largest;
+          const InternalKey& this_begin = v->levels_[level][i]->smallest;
+          if (vset_->icmp_.Compare(prev_end, this_begin) >= 0) {
+            std::fprintf(stderr, "overlapping ranges in same level %s vs. %s\n",
+                         prev_end.DebugString().c_str(),
+                         this_begin.DebugString().c_str());
+            std::abort();
+          }
+        }
+      }
+#endif
+    }
+#ifndef NDEBUG
+    int deleted_file_num_supposed = 0;
+    for (int level = 0; level < config::kNumLevels; level++) {
+      deleted_file_num_supposed += levels_[level].deleted_files.size();
+    }
+    assert(number_deleted == deleted_file_num_supposed);
+#endif
+  }
   // Save the current state in *v.
   void SaveTo(Version* v) {//LZY:将VersionSet->中的added_files和base_->levels_中的文件整合添加到v，无论是L0还是其他，都是按照排序后的添加的
 //    printf("SaveTo: level 1 deleted file size %lu\n", levels_[1].deleted_files.size());
@@ -873,7 +985,7 @@ class VersionSet::Builder {
         ret = levels_[level].deleted_files.equal_range(f->number);
     bool file_number_deleted = false;
     for (std::multimap<uint64_t, uint8_t>::iterator it=ret.first; it!=ret.second; ++it){
-      if (it->second == f->creator_node_id){
+      if (it->second == f->belong_node_id){
         file_number_deleted = true;
 #ifndef NDEBUG
         number_deleted++;
@@ -1027,6 +1139,32 @@ void VersionSet::Persistency_unpin(uint64_t* array, size_t size){
   }
 }
 #endif
+Status VersionSet::LogAndApply3(VersionEdit* edit,uint8_t target_node_id) {//LZY:生成新的Version
+
+  //edit->SetLastSequence(last_sequence_);
+  Version* v;
+  v = new Version(this);
+
+  {
+    // Decide what table to keep what to discard.
+    Builder builder(this, current_.load());
+    // apply to the new version, no need to apply delete files, only add
+    // alive files and new files to the new version just created
+    builder.Apply3(edit, current_.load(),target_node_id);//LZY:将新添加的文件最终 builder.levels_[level].added_files->insert(f);
+    builder.SaveTo3(v,target_node_id);//LZY:将VersionSet->中的added_files和base_->levels_中的文件整合添加到v，无论是L0还是其他，都是按照排序后的添加的
+  }
+
+  Status s = Status::OK();
+
+  if (s.ok()) {
+    AppendVersion(v);//LZY:将Version v设为当前
+  } else {
+    delete v;
+    printf("installing new version failed");
+    exit(0);
+  }
+  return s;
+}
 Status VersionSet::LogAndApply(VersionEdit* edit) {//LZY:生成新的Version
 //  if (edit->has_log_number_) {
 //    assert(edit->log_number_ >= log_number_);
@@ -1580,22 +1718,31 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
   const int space = (c->level() == 0 ? c->inputs_[0].size() + 1 : 2);
   Iterator** list = new Iterator*[space];
   int num = 0;
+  for (int which = 0; which < 2; which++) {//LZYADD
+    if (!c->inputs_[which].empty()) {
+      const std::vector<std::shared_ptr<RemoteMemTableMetaData>>& files = c->inputs_[which];
+      for (size_t i = 0; i < files.size(); i++) {
+        //printf("MakeInputIterator: files[%d][%d] meta: Level is %d, Num is %lu, Belong_node_id is %lu\n", which, i, files[i]->level, files[i]->number, files[i]->belong_node_id);
+      }
+    }
+  }
   for (int which = 0; which < 2; which++) {
     if (!c->inputs_[which].empty()) {
       if (c->level() + which == 0) {
-        const std::vector<std::shared_ptr<RemoteMemTableMetaData>>& files = c->inputs_[which];
+        const std::vector<std::shared_ptr<RemoteMemTableMetaData>>& files = c->inputs_[which];//走cache的
         for (size_t i = 0; i < files.size(); i++) {
           list[num++] = table_cache_->NewIterator(options, files[i]);
+          //printf("MakeInputIterator:单层 files[%d][%d] meta: Level is %d, Num is %lu, Belong_node_id is %lu\n", which, i, files[i]->level, files[i]->number, files[i]->belong_node_id);
         }
       } else {
         // Create concatenating iterator for the files from this level
         // one iterator will responsible for multiple remote memtables.
         list[num++] = NewTwoLevelFileIterator(
             new Version::LevelFileNumIterator(icmp_, &c->inputs_[which]),
-            &GetFileIterator, table_cache_, options);
+            &GetFileIterator, table_cache_, options);//也会走Cache
       }
     }
-  }
+  }//LZYTODO，A设计另一条数据路径，只远端访问，不走Cache；B给Cache增加字段，访问时辨别
   assert(num <= space);
   Iterator* result = NewMergingIterator(&icmp_, list, num);
   delete[] list;
@@ -2342,7 +2489,7 @@ bool Compaction::IsTrivialMove() const {
 void Compaction::AddInputDeletions(VersionEdit* edit) {//LZY:删除Compaction中参与的旧文件
   for (int which = 0; which < 2; which++) {
     for (size_t i = 0; i < inputs_[which].size(); i++) {
-      edit->RemoveFile(level_ + which, inputs_[which][i]->number, inputs_[which][i]->creator_node_id);
+      edit->RemoveFile(level_ + which, inputs_[which][i]->number, inputs_[which][i]->belong_node_id);
     }
   }
 }
@@ -2361,6 +2508,7 @@ void Compaction::DecodeFrom(const Slice src, int side) {
     std::shared_ptr<RemoteMemTableMetaData> f = std::make_shared<RemoteMemTableMetaData>(side);
     f->DecodeFrom(input);
     inputs_[0].push_back(f);
+    //printf("DecodeFrom: inputs_[0][%d] meta: Level is %d, Num is %lu, Belong_node_id is %lu\n", i, f->level, f->number, f->belong_node_id);
   }
   uint32_t second_level_len = 0;
   GetFixed32(&input, &second_level_len);
@@ -2368,6 +2516,7 @@ void Compaction::DecodeFrom(const Slice src, int side) {
     std::shared_ptr<RemoteMemTableMetaData> f = std::make_shared<RemoteMemTableMetaData>(side);
     f->DecodeFrom(input);
     inputs_[1].push_back(f);
+    //printf("DecodeFrom: inputs_[1][%d] meta: Level is %d, Num is %lu, Belong_node_id is %lu\n", i, f->level, f->number, f->belong_node_id);
   }
   max_output_file_size_ = MaxFileSizeForLevel(opt_ptr, level);
 }

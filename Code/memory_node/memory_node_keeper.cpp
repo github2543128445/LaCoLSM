@@ -200,7 +200,7 @@ TimberSaw::Memory_Node_Keeper::Memory_Node_Keeper(bool use_sub_compaction,
 //      // Move file to next level
 //      assert(c->num_input_files(0) == 1);
 //      std::shared_ptr<RemoteMemTableMetaData> f = c->input(0, 0);
-//      c->edit()->RemoveFile(c->level(), f->number, f->creator_node_id);
+//      c->edit()->RemoveFile(c->level(), f->number, f->belong_node_id);
 //      c->edit()->AddFile(c->level() + 1, f);
 //      f->level = f->level +1;
 //      {
@@ -2217,8 +2217,8 @@ printf("server_sock_connect : servername %s. port %d\n",servername,port);
 #ifndef NDEBUG
     auto edit_files_vec = compact->compaction->edit()->GetNewFiles();
     for (auto iter : *edit_files_vec) {
-      assert(iter.second->creator_node_id == rdma_mg->node_id);
-      assert(iter.second->creator_node_id%2 == 0);
+      assert(iter.second->belong_node_id == rdma_mg->node_id);
+      assert(iter.second->belong_node_id%2 == 0);
     }
 #endif
     compact->compaction->edit()->EncodeTo(&serilized_ve);

@@ -560,7 +560,7 @@ Status TableBuilder_BACS::status() const { return rep_->status; }
 
 Status TableBuilder_BACS::Finish() {//Flush 以及 Compaction结果写回的位置
   Rep* r = rep_;
-//  UpdateFunctionBLock();
+  //UpdateFunctionBLock();
   if (r->offset - r->offset_last_flushed >0){
     FlushData();//LZY:不仅仅是FLUSH的核心，而且是Compaction结果写回的核心，在里面完成的builder的远程地址的绑定。
   }

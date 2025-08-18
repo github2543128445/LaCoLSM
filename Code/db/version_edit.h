@@ -22,6 +22,7 @@ struct RemoteMemTableMetaData {
 //  RemoteMemTableMetaData();
 // this_machine_type 0 means compute node, 1 means memory node
 // creater_node_id  odd means compute node, even means memory node
+  RemoteMemTableMetaData(int machine_type, TableCache* cache, uint8_t id,uint8_t belong_node_id);
   RemoteMemTableMetaData(int machine_type, TableCache* cache, uint8_t id);
   RemoteMemTableMetaData(int side);
   //TOTHINK: the garbage collection of the Remote table is not triggered!
@@ -29,7 +30,7 @@ struct RemoteMemTableMetaData {
   bool Remote_blocks_deallocate(std::map<uint32_t, ibv_mr*> map,
                                 Chunk_type c_type) {
     std::map<uint32_t , ibv_mr*>::iterator it;
-//    assert(creator_node_id%2 == 0);
+//    assert(belong_node_id%2 == 0);
     for (it = map.begin(); it != map.end(); it++){
       if(!rdma_mg->Deallocate_Remote_RDMA_Slot(
               it->second->addr, shard_target_node_id, c_type)){
@@ -96,8 +97,8 @@ struct RemoteMemTableMetaData {
   Status DecodeFrom(Slice& src);
   void mr_serialization(std::string* dst, ibv_mr* mr) const;
   std::shared_ptr<RDMA_Manager> rdma_mg;
-  int this_machine_type;
-  uint8_t creator_node_id;// The node id who create this SSTable. This could be a compute node
+  int this_machine_type;// this_machine_type 0 means compute node, 1 means memory node
+  uint8_t belong_node_id;// The node id who create this SSTable. This could be a compute node //LZYCHA修改为属于的节点id
 
   // The memory node that store the shard for this SSTable, it has to be a memory node
   uint8_t shard_target_node_id;
@@ -118,6 +119,7 @@ struct RemoteMemTableMetaData {
   TableCache* table_cache = nullptr;
   bool UnderCompaction = false;
   Table_Type table_type;
+  //uint8_t belong_node_id=-1; //LZYADD
 };
 
 class VersionEdit {
@@ -147,6 +149,12 @@ class VersionEdit {
   void SetLastSequence(SequenceNumber seq) {
     has_last_sequence_ = true;
     last_sequence_ = seq;
+  }
+  void MySetFileNumbers(uint64_t file_number_end,uint8_t node_id){//LZYADD
+    for (auto pair : new_files_) {
+      pair.second->number = file_number_end++;
+      pair.second->belong_node_id = node_id;
+    }
   }
   void SetFileNumbers(uint64_t file_number_end){
     for (auto pair : new_files_) {
@@ -229,7 +237,7 @@ class VersionEdit {
   bool has_last_sequence_;
 
   std::vector<std::pair<int, InternalKey>> compact_pointers_;
-  DeletedFileSet deleted_files_;// level, file_number, creator_node_id
+  DeletedFileSet deleted_files_;// level, file_number, belong_node_id
   std::vector<std::pair<int, std::shared_ptr<RemoteMemTableMetaData>>> new_files_;
 };
 class VersionEdit_Merger {

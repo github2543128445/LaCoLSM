@@ -51,7 +51,7 @@ Status Table_Memory_Side::Open(const Options& options, Table_Memory_Side** table
                                const std::shared_ptr<RemoteMemTableMetaData>& Remote_table_meta) {
   *table = nullptr;
 #ifndef NDEBUG
-  printf("Open table %lu, creator id %d\n", Remote_table_meta->number, Remote_table_meta->creator_node_id);
+  printf("Open table %lu, creator id %d\n", Remote_table_meta->number, Remote_table_meta->belong_node_id);
 #endif
   // Read the index block
   Status s = Status::OK();

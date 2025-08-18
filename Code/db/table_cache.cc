@@ -60,7 +60,9 @@ TableCache::TableCache(const std::string& dbname, const Options& options,
     : env_(options.env),
       dbname_(dbname),
       options_(options),
-      cache_(NewLRUCache(entries)) {}
+      cache_(NewLRUCache(entries)) {
+        printf("TableCache: Created, cache_ addr =  %p, this = %p\n", &cache_, this);
+      }
 
 TableCache::~TableCache() {
 #ifdef PROCESSANALYSIS
@@ -87,16 +89,17 @@ TableCache::~TableCache() {
 #endif
   printf("Total number of entries within the cache is %zu\n", cache_->TotalCharge());
   delete cache_;
+  printf("TableCache: Deleted, cache_ addr =  %p, this = %p\n", &cache_, this);
 }
 
 Status TableCache::FindTable(
     const std::shared_ptr<RemoteMemTableMetaData>& Remote_memtable_meta,
     Cache::Handle** handle) {
   Status s = Status::OK();
-//  char buf[sizeof(Remote_memtable_meta->number) + sizeof(Remote_memtable_meta->creator_node_id)];
+//  char buf[sizeof(Remote_memtable_meta->number) + sizeof(Remote_memtable_meta->belong_node_id)];
 //  EncodeFixed64(buf, Remote_memtable_meta->number);
-//  memcpy(buf + sizeof(Remote_memtable_meta->number), &Remote_memtable_meta->creator_node_id,
-//         sizeof(Remote_memtable_meta->creator_node_id));
+//  memcpy(buf + sizeof(Remote_memtable_meta->number), &Remote_memtable_meta->belong_node_id,
+//         sizeof(Remote_memtable_meta->belong_node_id));
 //  char buf[sizeof(Remote_memtable_meta->number)];
 //  EncodeFixed64(buf, Remote_memtable_meta->number);
 //  Slice key(buf, sizeof(buf));
@@ -105,9 +108,10 @@ Status TableCache::FindTable(
   // Answer: Every DB_Impl have its own table cache, so there will be never a table cache contain two SSTables with the same number
 //  char buf[sizeof(Remote_memtable_meta->number)];
 //  EncodeFixed64(buf, Remote_memtable_meta->number);
-  Slice key((char*)&Remote_memtable_meta->number, sizeof(uint64_t));
-
-
+  Slice key((char*)&Remote_memtable_meta->number, sizeof(uint64_t));//LZYTODO 直接拿key生成，没考虑从属
+  key.append((char*)&Remote_memtable_meta->belong_node_id, sizeof(uint8_t));//LZYADD 考虑从属
+  printf("FindTable: Try find table in cache, Num is %lu, Belong_node_id is %lu\n",Remote_memtable_meta->number,Remote_memtable_meta->belong_node_id);//LZYDEBUG
+  //printf("Cache: Lookup Key %s\n",key.ToString().c_str());//LZYDEBUG
   *handle = cache_->Lookup(key);
   if (*handle == nullptr) {
     // TODO: implement a hash lock to reduce the contention here, otherwise multiple
@@ -115,10 +119,11 @@ Status TableCache::FindTable(
     uint64_t hash_value = Remote_memtable_meta->number%32;
     hash_mtx[hash_value].lock();
     *handle = cache_->Lookup(key);
-    if (*handle == nullptr) {
-//      printf("Cache misses!!!!!!!!!!!!!!!!\n");
+    //printf("FindTable: cache_ addr =  %p, this = %p\n", &cache_, this);
+    if (*handle == nullptr) { //Cache miss
+      //printf("FindTable: Cache miss\n");//LZYDEBUG
       Table* table = nullptr;
-//          printf("Did not find the table in the table_cache, file number is %lu \n ", Remote_memtable_meta->number);
+      //printf("Did not find the table in the table_cache, file number is %lu \n ", Remote_memtable_meta->number);
       if (s.ok()) {
         s = Table::Open(options_, &table, Remote_memtable_meta);
       }
@@ -139,11 +144,14 @@ Status TableCache::FindTable(
         *handle = cache_->Insert(key, tf, table->GetIndexAndMetaSize(), &DeleteEntry_Compute);
 #else
         *handle = cache_->Insert(key, tf, 1, &DeleteEntry_Compute);
-
 #endif
       }
+    }else{
+      printf("FindTable: Cache Hit2\n");
     }
     hash_mtx[hash_value].unlock();
+  }else{
+    printf("FindTable: Cache Hit1\n");
   }
 
   return s;
@@ -161,10 +169,10 @@ Status TableCache::FindTable_MemorySide(
 //Status TableCache::FindTable_MemorySide(std::shared_ptr<RemoteMemTableMetaData> Remote_memtable_meta, Cache::Handle** handle){
 //  {
 //    Status s;
-//    char buf[sizeof(Remote_memtable_meta->number) + sizeof(Remote_memtable_meta->creator_node_id)];
+//    char buf[sizeof(Remote_memtable_meta->number) + sizeof(Remote_memtable_meta->belong_node_id)];
 //    EncodeFixed64(buf, Remote_memtable_meta->number);
-//    memcpy(buf + sizeof(Remote_memtable_meta->number), &Remote_memtable_meta->creator_node_id,
-//           sizeof(Remote_memtable_meta->creator_node_id));
+//    memcpy(buf + sizeof(Remote_memtable_meta->number), &Remote_memtable_meta->belong_node_id,
+//           sizeof(Remote_memtable_meta->belong_node_id));
 //    Slice key(buf, sizeof(buf));
 //    *handle = table_cache->Lookup(key);
 //    if (*handle == nullptr) {
@@ -309,14 +317,30 @@ Status TableCache::Get(const ReadOptions& options,
   return s;
 }
 
-void TableCache::Evict(uint64_t file_number, uint8_t creator_node_id) {
-//  char buf[sizeof(uint64_t) + sizeof(uint8_t)];
-  //  memcpy(buf + sizeof(uint64_t), &creator_node_id,
-  //         sizeof(uint8_t));
-  char buf[sizeof(file_number)];
-  EncodeFixed64(buf, file_number);
-
-  cache_->Erase(Slice(buf, sizeof(buf)));
+// void TableCache::Evict(uint64_t file_number, uint8_t belong_node_id) {
+// //  char buf[sizeof(uint64_t) + sizeof(uint8_t)];
+//   //  memcpy(buf + sizeof(uint64_t), &belong_node_id,
+//   //         sizeof(uint8_t));
+//   char buf[sizeof(file_number)];
+//   EncodeFixed64(buf, file_number); 
+//   Slice key(buf, sizeof(buf));
+//   printf("Cache: Evict key %s\n", key.ToString().c_str());
+//   printf("Evict: cache_ addr =  %p, this = %p\n", &cache_, this);
+//   if(cache_ == nullptr) {
+//     printf("Cache is nullptr\n");
+//     exit(1);
+//   }
+//   if(cache_->Lookup(key) == nullptr) {
+//     printf("Cache: key %s not found\n", key.ToString().c_str());
+//   }
+//   cache_->Erase(Slice(buf, sizeof(buf)));//LZYCHA
+// }
+void TableCache::Evict(uint64_t file_number, uint8_t belong_node_id) {//LZYCHA
+  char buf[sizeof(file_number)+sizeof(uint8_t)];
+  EncodeFixed64(buf, file_number); 
+  memcpy(buf+sizeof(file_number), &belong_node_id, sizeof(uint8_t));
+  Slice key(buf, sizeof(buf));
+  printf("Cache: Try Evict key %s\n", key.ToString().c_str());
+  cache_->Erase(key);
 }
-
 }  // namespace TimberSaw

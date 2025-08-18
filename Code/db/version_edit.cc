@@ -19,6 +19,19 @@ namespace TimberSaw {
 /***************************************/
 // this_machine_type 0 means compute node, 1 means memory node
 // creater_node_id  odd means compute node, even means memory node
+RemoteMemTableMetaData::RemoteMemTableMetaData(int machine_type, TableCache* cache, uint8_t id,uint8_t belong_node_id)
+    : this_machine_type(machine_type), shard_target_node_id(id),
+      allowed_seeks(1 << 30),
+      table_cache(cache),
+      belong_node_id(belong_node_id){
+  if (machine_type == 0){
+    rdma_mg = Env::Default()->rdma_mg;
+    belong_node_id = rdma_mg->node_id; // rdma_mg->node_id = machine_type
+  }else{
+    rdma_mg = Memory_Node_Keeper::rdma_mg;
+    belong_node_id = rdma_mg->node_id;
+  }
+}
 RemoteMemTableMetaData::RemoteMemTableMetaData(int machine_type,
                                                TableCache* cache, uint8_t id)
     : this_machine_type(machine_type), shard_target_node_id(id),
@@ -30,10 +43,10 @@ RemoteMemTableMetaData::RemoteMemTableMetaData(int machine_type,
   // the compute node from the memory node.
   if (machine_type == 0){
     rdma_mg = Env::Default()->rdma_mg;
-    creator_node_id = rdma_mg->node_id; // rdma_mg->node_id = machine_type
+    belong_node_id = rdma_mg->node_id; // rdma_mg->node_id = machine_type
   }else{
     rdma_mg = Memory_Node_Keeper::rdma_mg;
-    creator_node_id = rdma_mg->node_id;
+    belong_node_id = rdma_mg->node_id;
   }
 }
 RemoteMemTableMetaData::RemoteMemTableMetaData(int side)
@@ -42,10 +55,10 @@ RemoteMemTableMetaData::RemoteMemTableMetaData(int side)
   //  Node_id is unique for every node, while the this_machine_type only distinguish the compute node from the memory node.
   if (side == 0) {
     rdma_mg = Env::Default()->rdma_mg;
-    creator_node_id = rdma_mg->node_id;  // rdma_mg->node_id = side
+    belong_node_id = rdma_mg->node_id;  // rdma_mg->node_id = side
   } else {
     rdma_mg = Memory_Node_Keeper::rdma_mg;
-    creator_node_id = rdma_mg->node_id;
+    belong_node_id = rdma_mg->node_id;
   }
 }
 RemoteMemTableMetaData::~RemoteMemTableMetaData() {
@@ -53,16 +66,17 @@ RemoteMemTableMetaData::~RemoteMemTableMetaData() {
   // home node to deference. Or the remote dereference is conducted in the granularity of version.
   assert(remote_dataindex_mrs.size() == 1);
   assert(this_machine_type ==0 || this_machine_type == 1);
-//  assert(creator_node_id == 0 || creator_node_id == 1);
+//  assert(belong_node_id == 0 || belong_node_id == 1);
 
   if (this_machine_type == 0){
     assert(table_cache!= nullptr);
+    printf("~RemoteMemTableMetaData: Owner Delete, Num is %lu, Node %d try to deallocate Node %d remote memory\n", number, rdma_mg->node_id, belong_node_id);
     if (table_cache != nullptr){
-      table_cache->Evict(number, creator_node_id);
+      table_cache->Evict(number, belong_node_id);
     }
-    if (creator_node_id == rdma_mg->node_id){
+    if (belong_node_id == rdma_mg->node_id){
       //#ifndef NDEBUG
-      //        printf("Destroying RemoteMemtableMetaData locally on compute node, Table number is %lu, creator node id is %d \n", number, creator_node_id);
+      //        printf("Destroying RemoteMemtableMetaData locally on compute node, Table number is %lu, creator node id is %d \n", number, belong_node_id);
       //#endif
       if(Remote_blocks_deallocate(remote_data_mrs, FlushBuffer) &&
           Remote_blocks_deallocate(remote_dataindex_mrs, FlushBuffer) &&
@@ -75,10 +89,11 @@ RemoteMemTableMetaData::~RemoteMemTableMetaData() {
     }else{
       //#ifndef NDEBUG
       //        printf("chunks will be garbage collected on the memory node, Table number is %lu, "
-      //            "creator node id is %d index block pointer is %p\n", number, creator_node_id, remote_dataindex_mrs.begin()->second->addr);
+      //            "creator node id is %d index block pointer is %p\n", number, belong_node_id, remote_dataindex_mrs.begin()->second->addr);
       //#endif
       //        assert(remote_dataindex_mrs.size() == 1);
-      Prepare_Batch_Deallocate();
+      printf("~RemoteMemTableMetaData: Other Delete, Num is %lu, Node %d try to deallocate Node %d remote memory\n", number, rdma_mg->node_id, belong_node_id);
+      //Prepare_Batch_Deallocate();//LZYDEL
     }
 
   } else if (this_machine_type == 1){
@@ -93,7 +108,7 @@ RemoteMemTableMetaData::~RemoteMemTableMetaData() {
     }
   }
 
-  //    else if(this_machine_type == 1 && creator_node_id == rdma_mg->node_id){
+  //    else if(this_machine_type == 1 && belong_node_id == rdma_mg->node_id){
   //      //TODO: memory collection for the remote memory.
   //      if(Local_blocks_deallocate(remote_data_mrs) &&
   //      Local_blocks_deallocate(remote_dataindex_mrs) &&
@@ -112,8 +127,8 @@ void RemoteMemTableMetaData::EncodeTo(std::string* dst) const {
   uint32_t temp_type_buf =  static_cast<uint32_t>(table_type);
   PutFixed32(dst, temp_type_buf);
   PutFixed64(dst, number);
-//  printf("Node id is %u", creator_node_id);
-  dst->append(reinterpret_cast<const char*>(&creator_node_id), sizeof(creator_node_id));
+//  printf("Node id is %u", belong_node_id);
+  dst->append(reinterpret_cast<const char*>(&belong_node_id), sizeof(belong_node_id));
   dst->append(reinterpret_cast<const char*>(&shard_target_node_id), sizeof(shard_target_node_id));
 
   PutFixed64(dst, file_size);
@@ -172,9 +187,9 @@ Status RemoteMemTableMetaData::DecodeFrom(Slice& src) {
   assert(table_type!= invalid_table_type_);
   GetFixed64(&src, &number);
 //  node_id = reinterpret_cast<uint8_t*>(src.data());
-  memcpy(&creator_node_id, src.data(), sizeof(creator_node_id));
-  src.remove_prefix(sizeof(creator_node_id));
-//  printf("Node id is %u", creator_node_id);
+  memcpy(&belong_node_id, src.data(), sizeof(belong_node_id));
+  src.remove_prefix(sizeof(belong_node_id));
+//  printf("Node id is %u", belong_node_id);
   memcpy(&shard_target_node_id, src.data(), sizeof(shard_target_node_id));
   src.remove_prefix(sizeof(shard_target_node_id));
   assert(shard_target_node_id < 36);
@@ -215,6 +230,7 @@ Status RemoteMemTableMetaData::DecodeFrom(Slice& src) {
     GetFixed32(&src, &mr->lkey);
     GetFixed32(&src, &mr->rkey);
     remote_data_mrs.insert({offset, mr});
+    //printf("DecodeFrom: remote_data_mrs[%d] meta: Offset is %d, Addr is %p, Length is %lu, Lkey is %d, Rkey is %d\n", i, offset, mr->addr, mr->length, mr->lkey, mr->rkey);
     assert(debug_src.data() - src.data() <=16384);
   }
   for(auto i = 0; i< remote_dataindex_chunk_num; i++){
@@ -232,6 +248,7 @@ Status RemoteMemTableMetaData::DecodeFrom(Slice& src) {
     assert(mr!= nullptr);
     assert(offset != 0);
     remote_dataindex_mrs.insert({offset, mr});
+    //printf("DecodeFrom: remote_dataindex_mrs[%d] meta: Offset is %d, Addr is %p, Length is %lu, Lkey is %d, Rkey is %d\n", i, offset, mr->addr, mr->length, mr->lkey, mr->rkey);
   }
   assert(!remote_dataindex_mrs.empty());
   for(auto i = 0; i< remote_filter_chunk_num; i++){
@@ -247,6 +264,7 @@ Status RemoteMemTableMetaData::DecodeFrom(Slice& src) {
     GetFixed32(&src, &mr->lkey);
     GetFixed32(&src, &mr->rkey);
     remote_filter_mrs.insert({offset, mr});
+    //printf("DecodeFrom: remote_filter_mrs[%d] meta: Offset is %d, Addr is %p, Length is %lu, Lkey is %d, Rkey is %d\n", i, offset, mr->addr, mr->length, mr->lkey, mr->rkey);
   }
   assert(!remote_filter_mrs.empty());
   return s;
@@ -378,7 +396,7 @@ void VersionEdit::EncodeToDiskFormat(std::string* dst) const {
     PutVarint32(dst, kNewFile);
     PutVarint32(dst, new_files_[i].first);  // level
     PutVarint64(dst, f->number);
-    dst->append(reinterpret_cast<const char*>(&f->creator_node_id), sizeof(f->creator_node_id));
+    dst->append(reinterpret_cast<const char*>(&f->belong_node_id), sizeof(f->belong_node_id));
 
     PutVarint64(dst, f->file_size);
     PutLengthPrefixedSlice(dst, f->smallest.Encode());
@@ -642,7 +660,7 @@ void VersionEdit_Merger::EncodeToDiskFormat(std::string* dst) const {
     PutVarint32(dst, kNewFile);
     PutVarint32(dst, f->level);  // level
     PutVarint64(dst, f->number);
-    dst->append(reinterpret_cast<const char*>(&f->creator_node_id), sizeof(f->creator_node_id));
+    dst->append(reinterpret_cast<const char*>(&f->belong_node_id), sizeof(f->belong_node_id));
 
     PutVarint64(dst, f->file_size);
     PutLengthPrefixedSlice(dst, f->smallest.Encode());

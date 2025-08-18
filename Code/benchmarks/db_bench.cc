@@ -1205,6 +1205,7 @@ class Benchmark {
     printf("validation read finished, not found num %d\n", not_found);
   }
   void DoWrite(ThreadState* thread, bool seq) {//写服务器的线程各调用一次-LZY
+    //sleep(100000000);
     static int roundw = 0;
     if (num_ != FLAGS_num) {
       char msg[100];

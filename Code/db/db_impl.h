@@ -315,8 +315,12 @@ class DBImpl : public DB{
   static void BGWork_Flush(void* thread_args);
   static void BGWork_Compaction(void* thread_args);
   void Other_Compaction_Handler(void* arg);//LZYADD
+  void Other_Compaction_Handler2(void* arg);//LZYADD
+  void Other_Compaction_Handler3(void* arg);//LZYADD
   static void BGWork_CompactionOthers(void* thread_args);//LZYADD
   Status DoRemoteCompactionWork(CompactionState* compact,uint8_t target_node_id) EXCLUSIVE_LOCKS_REQUIRED(undefine_mutex); //LZYADD 
+  Status DoRemoteCompactionWork2(CompactionState* compact,uint8_t target_node_id) EXCLUSIVE_LOCKS_REQUIRED(undefine_mutex); //LZYADD 
+  Status DoRemoteCompactionWork3(CompactionState* compact,uint8_t target_node_id,uint64_t start_num) EXCLUSIVE_LOCKS_REQUIRED(undefine_mutex); //LZYADD 
   void BackgroundCall();
   void BackgroundFlush(void* p);
   void BackgroundCompaction(void* p) EXCLUSIVE_LOCKS_REQUIRED(undefine_mutex);
@@ -339,12 +343,16 @@ class DBImpl : public DB{
   Status OpenCompactionOutputFileFor(CompactionState* compact,uint8_t target_node_id);//LZYADD
   Status OpenCompactionOutputFile(SubcompactionState* compact);
   Status OpenCompactionOutputFile(CompactionState* compact);
+  Status OpenCompactionOutputFile3(CompactionState* compact,uint64_t start_num);//LZYADD
   Status FinishCompactionOutputFile(SubcompactionState* compact,
                                     Iterator* input);
   Status FinishCompactionOutputFile(CompactionState* compact, Iterator* input);
+  
   Status InstallCompactionResults(CompactionState* compact,
                                   std::unique_lock<std::mutex>* lck_sv)
       EXCLUSIVE_LOCKS_REQUIRED(undefine_mutex);
+  Status InstallCompactionResultsSelf(CompactionState* compact,std::unique_lock<std::mutex>* lck_sv);//LZYADD
+  Status InstallCompactionResultsRemote(CompactionState* compact,std::unique_lock<std::mutex>* lck_sv,uint8_t target_node_id);//LZYADD
   Status InstallCompactionResultsFor(CompactionState* compact,uint8_t target_node_id);//LZYADD
   Status TryInstallMemtableFlushResults(
       FlushJob* job, VersionSet* vset,

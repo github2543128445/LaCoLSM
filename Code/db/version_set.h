@@ -346,7 +346,7 @@ class VersionSet {
   // REQUIRES: no other thread concurrently calls LogAndApply()
   //TODO: Finalize is not required for the comppute node side.
   Status LogAndApply(VersionEdit* edit);
-
+  Status LogAndApply3(VersionEdit* edit,uint8_t target_node_id);
 
   // Recover the last saved descriptor from persistent storage.
   Status Recover(bool* save_manifest);

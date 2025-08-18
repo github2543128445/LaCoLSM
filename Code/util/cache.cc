@@ -369,8 +369,11 @@ class ShardedLRUCache : public Cache {
     for (int s = 0; s < kNumShards; s++) {
       shard_[s].SetCapacity(per_shard);
     }
+    printf("ShardedLRUCache: Created, capacity is %zu\n", capacity);
   }
-  ~ShardedLRUCache() override {}
+  ~ShardedLRUCache() override {
+    printf("ShardedLRUCache: Deleted\n");
+  }
   size_t GetCapacity() override{
       return capacity_;
   }
