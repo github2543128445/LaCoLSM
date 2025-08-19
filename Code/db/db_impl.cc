@@ -1438,11 +1438,11 @@ Status DBImpl::DoRemoteCompactionWork2(CompactionState* compact,uint8_t target_n
 Status DBImpl::DoRemoteCompactionWork3(CompactionState* compact,uint8_t target_node_id,uint64_t start_num){//完全复用CN
   assert(versions_->NumLevelFiles(compact->compaction->level()) > 0);
   assert(compact->builder == nullptr);
-  if (snapshots_.empty()) {
-    compact->smallest_snapshot = versions_->LastSequence();
-  } else {
-    compact->smallest_snapshot = snapshots_.oldest()->sequence_number();
-  }
+  // if (snapshots_.empty()) {
+  //   compact->smallest_snapshot = versions_->LastSequence();
+  // } else {
+  //   compact->smallest_snapshot = snapshots_.oldest()->sequence_number();
+  // }
   printf("DoRemoteCompactionWork:cp0\n");
   Iterator* input = versions_->MakeInputIterator(compact->compaction); //从compact->compaction里取上下两层的数据
 
@@ -1787,20 +1787,16 @@ void DBImpl::Other_Compaction_Handler3(void* arg){//参考Memory_Node_Keeper::ss
   printf("Other_Compaction_Handler:cp1\n");
   status = DoRemoteCompactionWork3(compact,target_node_id,start_num);//进行数据归并
   printf("Other_Compaction_Handler:cp2\n");
+  // undefine_mutex.Lock();
+  // if (status.ok()) {
+  //   std::unique_lock<std::mutex> l(superversion_memlist_mtx, std::defer_lock);
+  //   status = InstallCompactionResultsRemote(compact, &l,target_node_id);//LZY:删除老文件，添加新文件的meta，生成真实的Meta数据
+  //   InstallSuperVersion();
+  // }
+  // undefine_mutex.Unlock();
+  status = InstallCompactionResultsFor(compact,target_node_id);//LZY:删除老文件，添加新文件的meta，生成真实的Meta数据
+  printf("Other_Compaction_Handler: cp3 InstallCompactionResultsRemote\n");
   
-
-  undefine_mutex.Lock();
-  if (status.ok()) {
-    std::unique_lock<std::mutex> l(superversion_memlist_mtx, std::defer_lock);
-    status = InstallCompactionResultsRemote(compact, &l,target_node_id);//LZY:删除老文件，添加新文件的meta，生成真实的Meta数据
-    InstallSuperVersion();
-  }
-  undefine_mutex.Unlock();
-  printf("Other_Compaction_Handler:InstallCompactionResultsRemote\n");
-  
-  //InstallCompactionResultsFor(compact, target_node_id);//LZYDEBUG整理compact里的元数据，应该不会影响Table cache，而且未指定number
-  printf("Other_Compaction_Handler:cp3\n");
-      //TODO:Send back the new created sstables and wait for another reply.
   std::string serilized_ve;
   compact->compaction->edit()->EncodeTo(&serilized_ve);
   printf("%d Other_Compaction_Handler: edit file size = %lu\n", imm_num, compact->compaction->edit()->GetNewFilesNum());
@@ -1854,7 +1850,7 @@ void DBImpl::Other_Compaction_Handler3(void* arg){//参考Memory_Node_Keeper::ss
   env_->rdma_mg->Deallocate_Local_RDMA_Slot(large_recv_mr.addr, Version_edit);
   env_->rdma_mg->Deallocate_Local_RDMA_Slot(large_send_mr.addr, Version_edit);
   delete request;
-  CleanupCompaction(compact);
+  delete compact;
   delete (Arg_for_handler*) arg;
   printf("Other_Compaction_Handler:OTHER %d end\n",imm_num);
 }
@@ -1942,6 +1938,7 @@ void DBImpl::Other_Compaction_Handler2(void* arg){//参考Memory_Node_Keeper::ss
     InstallSuperVersion();
   }
   undefine_mutex.Unlock();
+  
   printf("Other_Compaction_Handler:InstallCompactionResultsRemote\n");
   
   if (status.ok()) {
@@ -3198,19 +3195,16 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact, Iterator* in
   return s;
 }
 Status DBImpl::InstallCompactionResultsFor(CompactionState* compact,uint8_t target_node_id){ //类似Memory_Node_Keeper::InstallCompactionResultsToComputePreparation LZYADD
-  // Add compaction outputs
   compact->compaction->AddInputDeletions(compact->compaction->edit());//LZY:删除Compaction中参与的旧文件
   const int level = compact->compaction->level();
   //LZY:下面进行新文件的meta更新
   if (compact->sub_compact_states.size() == 0){//
     for (size_t i = 0; i < compact->outputs.size(); i++) {//LZY:不含SubCompaction
       const CompactionOutput& out = compact->outputs[i];
-      std::shared_ptr<RemoteMemTableMetaData> meta = std::make_shared<RemoteMemTableMetaData>(0,table_cache_,0);//只是初始化一下id LZYDEBUG看看之后源端如何处理table_cache_指针
-      //此处应输入目标CN对应的MN的id, 目前都是0, 实际上可优化 LZYTODO
-      //LZYCHA修改了ID为源,错误
-
-      //meta->number = out.number;//LZYDEL MN无
-      meta->shard_target_node_id = 0;//LZYCONTINUE  在MN中,说这个很重要
+      std::shared_ptr<RemoteMemTableMetaData> meta = 
+          std::make_shared<RemoteMemTableMetaData>(0,table_cache_,shard_target_node_id,target_node_id);//LZYCHA
+      //TODO make all the metadata written into out
+      meta->number = out.number;//MN无
       meta->level = level+1;
       meta->file_size = out.file_size;
       meta->smallest = out.smallest;
@@ -3220,8 +3214,8 @@ Status DBImpl::InstallCompactionResultsFor(CompactionState* compact,uint8_t targ
       meta->remote_data_mrs = out.remote_data_mrs;
       meta->remote_dataindex_mrs = out.remote_dataindex_mrs;
       meta->remote_filter_mrs = out.remote_filter_mrs;
-      meta->table_type = compact->compaction->table_type;
       compact->compaction->edit()->AddFile(level + 1, meta);//添加文件
+      meta->table_type = compact->compaction->table_type;
       assert(!meta->UnderCompaction);
     }
   }else{//含subcompaction,估计用不上
@@ -3230,7 +3224,7 @@ Status DBImpl::InstallCompactionResultsFor(CompactionState* compact,uint8_t targ
       for (size_t i = 0; i < subcompact.outputs.size(); i++) {
         const CompactionOutput& out = subcompact.outputs[i];
         std::shared_ptr<RemoteMemTableMetaData> meta =
-            std::make_shared<RemoteMemTableMetaData>(0,table_cache_,shard_target_node_id);
+            std::make_shared<RemoteMemTableMetaData>(0,table_cache_,shard_target_node_id,target_node_id);//LZYCHA
         // TODO make all the metadata written into out
         meta->number = out.number;
         meta->file_size = out.file_size;
@@ -3247,13 +3241,14 @@ Status DBImpl::InstallCompactionResultsFor(CompactionState* compact,uint8_t targ
       }
     }
   }
-  /* 以下是CN的写法, 考虑让源节点去做
-  lck_sv->lock();
-  //std::unique_lock<std::mutex> lck_vs(versionset_mtx, std::defer_lock); 
-  Status s = versions_->LogAndApply(compact->compaction->edit());
-  compact->compaction->ReleaseInputs();
-  write_stall_cv.notify_all();
-  */
+  assert(compact->compaction->edit()->GetNewFilesNum() > 0 );
+  //lck_sv->lock();
+  ////std::unique_lock<std::mutex> lck_vs(versionset_mtx, std::defer_lock);
+  // printf("InstallCompactionResultRemote: cp1\n");
+  // Status s = versions_->LogAndApply3(compact->compaction->edit(),target_node_id);
+  // printf("InstallCompactionResultRemote: cp2\n");
+  // compact->compaction->ReleaseInputs();
+  // printf("InstallCompactionResultRemote: cp3\n");
   Status s = Status::OK();
   return s;
 }
@@ -3714,7 +3709,7 @@ void DBImpl::RemoteDataCompaction(Compaction* c,uint8_t target_node_id){//参考
     return;
   } //发送并等等待结果 流程是把控制信息发给对方，对方表示收到， 对方拿着rkey再过来读数据（无感知）
 
-  printf("RemoteDataCompaction cp1\n");
+  //printf("RemoteDataCompaction cp1\n");
   asm volatile ("sfence\n" : : );
   asm volatile ("lfence\n" : : );
   asm volatile ("mfence\n" : : );
@@ -3725,7 +3720,7 @@ void DBImpl::RemoteDataCompaction(Compaction* c,uint8_t target_node_id){//参考
   while (imm_num != *CN_imme_data[target_node_id]){//等待任务编号的回收
     CN_cv_imme[target_node_id]->wait(lck);
   }
-  printf("RemoteDataCompaction cp2\n");
+  //printf("RemoteDataCompaction cp2\n");
   size_t buffer_size = *CN_byte_len[target_node_id];
   *CN_byte_len[target_node_id] = 0;
   *CN_imme_data[target_node_id] = 0;
@@ -3744,7 +3739,7 @@ void DBImpl::RemoteDataCompaction(Compaction* c,uint8_t target_node_id){//参考
   printf("RemoteDataCompaction cp3\n");
   if(input_num_file < new_file_size){
     printf("!!!RemoteDataCompaction: input_num_file = %lu < new_file_size = %lu!!!\n",input_num_file,new_file_size);
-    exit(0);
+    exit(-1);
   }
   printf("RemoteDataCompaction:  immnum = %lu, edit file size = %lu\n",imm_num,new_file_size);
   DEBUG_arg("Edit new file number is %lu\n", new_file_size);
@@ -3770,13 +3765,11 @@ void DBImpl::RemoteDataCompaction(Compaction* c,uint8_t target_node_id){//参考
     table_cache_->Evict(std::get<1>(iter), std::get<2>(iter));//level，id
     printf("RemoteDataCompaction: Install result, delete table cache Level is %d, Num is %lu, belong_node_id is %lu\n",std::get<0>(iter),std::get<1>(iter),std::get<2>(iter));
   }
-  printf("RemoteDataCompaction cp7\n");
   for(const auto& iter : *edit.GetNewFiles()){//将所有新文件装入cache
     Iterator* it = versions_->table_cache_->NewIterator(ReadOptions(), iter.second);
     printf("RemoteDataCompaction: Install result, Add table cache Level is %d, Num is %lu, belong_node_id is %lu\n",iter.second->level,iter.second->number,iter.second->belong_node_id);
     delete it;
   }
-  printf("RemoteDataCompaction cp8\n");
   rdma_mg->Deallocate_Local_RDMA_Slot(send_mr.addr,Message);
   rdma_mg->Deallocate_Local_RDMA_Slot(mr_c.addr,Version_edit);
   rdma_mg->Deallocate_Local_RDMA_Slot(receive_mr.addr,Message);
@@ -3999,13 +3992,13 @@ void DBImpl::NearDataCompaction(Compaction* c) {
 
 #endif
     for(const auto& iter : *edit.GetDeletedFiles()){
-      printf("NearDataCompaction: table_cache addr = %p\n", table_cache_);
+      //printf("NearDataCompaction: table_cache addr = %p\n", table_cache_);
       table_cache_->Evict(std::get<1>(iter), std::get<2>(iter));
-      printf("NearDataCompaction: Install result, delete table cache Num is %lu, belong_node_id is %lu\n",std::get<1>(iter),std::get<2>(iter));
+      //printf("NearDataCompaction: Install result, delete table cache Num is %lu, belong_node_id is %lu\n",std::get<1>(iter),std::get<2>(iter));
     }
     for(const auto& iter : *edit.GetNewFiles()){
       Iterator* it = versions_->table_cache_->NewIterator(ReadOptions(), iter.second);
-      printf("NearDataCompaction: Install result, Add table cache Num is %lu,belong_node_id is %lu\n",iter.second->number,iter.second->belong_node_id);
+      //printf("NearDataCompaction: Install result, Add table cache Num is %lu,belong_node_id is %lu\n",iter.second->number,iter.second->belong_node_id);
       delete it;
     }
 #ifdef  MYDEBUG

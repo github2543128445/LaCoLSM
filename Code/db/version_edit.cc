@@ -70,7 +70,7 @@ RemoteMemTableMetaData::~RemoteMemTableMetaData() {
 
   if (this_machine_type == 0){
     assert(table_cache!= nullptr);
-    printf("~RemoteMemTableMetaData: Owner Delete, Num is %lu, Node %d try to deallocate Node %d remote memory\n", number, rdma_mg->node_id, belong_node_id);
+    //printf("~RemoteMemTableMetaData: Owner Delete, Num is %lu, Node %d try to deallocate Node %d remote memory\n", number, rdma_mg->node_id, belong_node_id);
     if (table_cache != nullptr){
       table_cache->Evict(number, belong_node_id);
     }
@@ -83,15 +83,10 @@ RemoteMemTableMetaData::~RemoteMemTableMetaData() {
           Remote_blocks_deallocate(remote_filter_mrs, FilterChunk)){
         DEBUG("Remote blocks deleted successfully\n");
       }else{
-        DEBUG("Remote memory collection not found\n");
+        DEBUG("Remote memory collection not found\n");//遇到这个也正常
         assert(false);
       }
     }else{
-      //#ifndef NDEBUG
-      //        printf("chunks will be garbage collected on the memory node, Table number is %lu, "
-      //            "creator node id is %d index block pointer is %p\n", number, belong_node_id, remote_dataindex_mrs.begin()->second->addr);
-      //#endif
-      //        assert(remote_dataindex_mrs.size() == 1);
       printf("~RemoteMemTableMetaData: Other Delete, Num is %lu, Node %d try to deallocate Node %d remote memory\n", number, rdma_mg->node_id, belong_node_id);
       //Prepare_Batch_Deallocate();//LZYDEL
     }

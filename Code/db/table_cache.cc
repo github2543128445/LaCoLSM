@@ -110,7 +110,7 @@ Status TableCache::FindTable(
 //  EncodeFixed64(buf, Remote_memtable_meta->number);
   Slice key((char*)&Remote_memtable_meta->number, sizeof(uint64_t));//LZYTODO 直接拿key生成，没考虑从属
   key.append((char*)&Remote_memtable_meta->belong_node_id, sizeof(uint8_t));//LZYADD 考虑从属
-  printf("FindTable: Try find table in cache, Num is %lu, Belong_node_id is %lu\n",Remote_memtable_meta->number,Remote_memtable_meta->belong_node_id);//LZYDEBUG
+  //printf("FindTable: Try find table in cache, Num is %lu, Belong_node_id is %lu\n",Remote_memtable_meta->number,Remote_memtable_meta->belong_node_id);//LZYDEBUG
   //printf("Cache: Lookup Key %s\n",key.ToString().c_str());//LZYDEBUG
   *handle = cache_->Lookup(key);
   if (*handle == nullptr) {
@@ -340,7 +340,7 @@ void TableCache::Evict(uint64_t file_number, uint8_t belong_node_id) {//LZYCHA
   EncodeFixed64(buf, file_number); 
   memcpy(buf+sizeof(file_number), &belong_node_id, sizeof(uint8_t));
   Slice key(buf, sizeof(buf));
-  printf("Cache: Try Evict key %s\n", key.ToString().c_str());
+  //printf("Cache: Try Evict key %s\n", key.ToString().c_str());
   cache_->Erase(key);
 }
 }  // namespace TimberSaw

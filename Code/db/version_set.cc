@@ -1156,13 +1156,13 @@ Status VersionSet::LogAndApply3(VersionEdit* edit,uint8_t target_node_id) {//LZY
 
   Status s = Status::OK();
 
-  if (s.ok()) {
-    AppendVersion(v);//LZY:将Version v设为当前
-  } else {
-    delete v;
-    printf("installing new version failed");
-    exit(0);
-  }
+  // if (s.ok()) {
+  //   AppendVersion(v);//LZY:将Version v设为当前
+  // } else {
+  //   delete v;
+  //   printf("installing new version failed");
+  //   exit(0);
+  // }
   return s;
 }
 Status VersionSet::LogAndApply(VersionEdit* edit) {//LZY:生成新的Version
