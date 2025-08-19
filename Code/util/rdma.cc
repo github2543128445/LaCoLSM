@@ -712,7 +712,7 @@ void RDMA_Manager::compute_message_handling_thread(std::string q_id, uint8_t sha
         post_receive<RDMA_Request>(&recv_mr[buffer_counter],shard_target_node_id,"main");
         Arg_for_handler* argforhandler = new Arg_for_handler{.request=receive_msg_buf, .client_ip = "main", .target_node_id = shard_target_node_id};
         BGThreadMetadata* thread_pool_args = new BGThreadMetadata{.db = db_owner, .func_args = argforhandler};
-        db_owner->env_->Schedule(DBImpl::BGWork_CompactionOthers, static_cast<void*>(thread_pool_args), ThreadPoolType::CompactionThreadPool);
+        db_owner->env_->Schedule(DBImpl::BGWork_CompactionOthers, static_cast<void*>(thread_pool_args), ThreadPoolType::OtherCompactionThreadPool);
       } else {//一开始会瞎发东西, 不知道是啥导致的, 然后被向主的方向就断了
         post_receive<RDMA_Request>(&recv_mr[buffer_counter], shard_target_node_id, "main");
         printf("compute_message_handling_thread: corrupt message from node %d, command = %d\n",shard_target_node_id,receive_msg_buf->command); 
@@ -1397,7 +1397,7 @@ void RDMA_Manager::passive_communication_thread(std::string client_ip, int socke
         post_receive<RDMA_Request>(&recv_mr[buffer_position],compute_node_id,client_ip);
         Arg_for_handler* argforhandler = new Arg_for_handler{.request=receive_msg_buf, .client_ip = client_ip, .target_node_id = compute_node_id};
         BGThreadMetadata* thread_pool_args = new BGThreadMetadata{.db = db_owner, .func_args = argforhandler};
-        db_owner->env_->Schedule(DBImpl::BGWork_CompactionOthers, static_cast<void*>(thread_pool_args), ThreadPoolType::CompactionThreadPool);
+        db_owner->env_->Schedule(DBImpl::BGWork_CompactionOthers, static_cast<void*>(thread_pool_args), ThreadPoolType::OtherCompactionThreadPool);
       } else {//一开始会瞎发东西, 不知道是啥导致的, 然后被向主的方向就断了
         post_receive<RDMA_Request>(&recv_mr[buffer_position], compute_node_id, client_ip);
         printf("passive_communication_thread: corrupt message from node %d, command = %d\n",compute_node_id,receive_msg_buf->command); 

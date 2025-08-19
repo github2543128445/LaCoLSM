@@ -283,7 +283,7 @@ printf("DB Impl1: cp1\n");
 
 #else
     env_->SetBackgroundThreads(options_.now_compute_compactions,ThreadPoolType::CompactionThreadPool);
-
+    env_->SetBackgroundThreads(options_.max_compute_compactions-options_.now_compute_compactions,ThreadPoolType::OtherCompactionThreadPool);
 #endif
     Unpin_bg_pool_.SetBackgroundThreads(1);
 //    if (options_.block_cache != nullptr){
@@ -383,6 +383,7 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname,
 
 #else
   env_->SetBackgroundThreads(options_.now_compute_compactions,ThreadPoolType::CompactionThreadPool);
+  env_->SetBackgroundThreads(options_.max_compute_compactions-options_.now_compute_compactions,ThreadPoolType::OtherCompactionThreadPool);
 
 #endif
 }
@@ -1308,7 +1309,7 @@ void DBImpl::BGWork_Flush(void* thread_arg) {//触发flush-LZY
   ((DBImpl*)p->db)->BackgroundFlush(p->func_args);
   delete static_cast<BGThreadMetadata*>(thread_arg);
 }
-void DBImpl::BGWork_Compaction(void* thread_arg) {//从线程池里ThreadPoolType::CompactionThreadPool搞来一个, 触发Comapction -LZY
+void DBImpl::BGWork_Compaction(void* thread_arg) {//从线程池里ThreadPoolType::Other_CompactionThreadPool搞来一个, 触发Comapction -LZY
   BGThreadMetadata* p = static_cast<BGThreadMetadata*>(thread_arg);
   ((DBImpl*)p->db)->BackgroundCompaction(p->func_args);//参数没用
   delete static_cast<BGThreadMetadata*>(thread_arg);

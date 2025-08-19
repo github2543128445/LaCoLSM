@@ -1997,7 +1997,7 @@ bool VersionSet::PickFileToCompact(int level, Compaction* c,  //LZY:得到需要
                                    Version* current_snap) {//level 0全放，level 1+随机选
   //assert(c->inputs_[0].empty());
   //assert(c->inputs_[1].empty());
-#if NEARDATACOMPACTION == 2
+#if NEARDATACOMPACTION == 3 //LZYTODO
   if(level == 0){
     return PickLevel0FilePlanA(level,c, current_snap);//根本没法分，选所有level0层是因为确实所有level0都会重叠
   }

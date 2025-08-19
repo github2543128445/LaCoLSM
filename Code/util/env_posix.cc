@@ -95,8 +95,15 @@ void PosixEnv::Schedule(
         DEBUG_arg("queue length has been too long %d elements in the queue\n", compaction.queue_len_.load());
         return;
       }
-//      DEBUG_arg("compaction thread pool task queue length %zu\n", compaction.queue_.size());
       compaction.Schedule(background_work_function, background_work_arg);
+      break;
+    case OtherCompactionThreadPool:
+      if (other_compaction.queue_len_.load()>256){
+        //If there has already be enough compaction scheduled, then drop this one
+        DEBUG_arg("queue length has been too long %d elements in the queue\n", other_compaction.queue_len_.load());
+        return;
+      }
+      other_compaction.Schedule(background_work_function, background_work_arg);
       break;
 //    case SubcompactionThreadPool:
 //      subcompaction.Schedule(background_work_function, background_work_arg);
@@ -116,6 +123,9 @@ unsigned int PosixEnv::Queue_Length_Quiry(ThreadPoolType type){
     case SubcompactionThreadPool:
       return subcompaction.queue_len_.load();
       break;
+    case OtherCompactionThreadPool:
+      return other_compaction.queue_len_.load();
+      break;
     default:
       return 0-1;
   }
@@ -124,6 +134,7 @@ void PosixEnv::JoinAllThreads(bool wait_for_jobs_to_complete) {
   flushing.JoinThreads(wait_for_jobs_to_complete);
   compaction.JoinThreads(wait_for_jobs_to_complete);
   subcompaction.JoinThreads(wait_for_jobs_to_complete);
+  other_compaction.JoinThreads(wait_for_jobs_to_complete);
 }
 void PosixEnv::BackgroundThreadMain() {
   while (true) {

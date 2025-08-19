@@ -741,6 +741,11 @@ class PosixEnv : public Env {
         //printf("///now Subcompaction Im %d///\n\n",num);
         subcompaction.SetBackgroundThreads(num);
         break;
+      case OtherCompactionThreadPool:
+        other_compaction.SetBackgroundThreads(num);
+        break;
+      
+      
     }
   }
 
@@ -774,6 +779,7 @@ class PosixEnv : public Env {
   ThreadPool flushing;
   ThreadPool compaction;
   ThreadPool subcompaction;
+  ThreadPool other_compaction;
   PosixLockTable locks_;  // Thread-safe.
   Limiter mmap_limiter_;  // Thread-safe.
   Limiter fd_limiter_;    // Thread-safe.

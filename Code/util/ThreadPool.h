@@ -14,7 +14,7 @@
 #include <assert.h>
 namespace TimberSaw {
 class DBImpl;
-enum ThreadPoolType{FlushThreadPool, CompactionThreadPool, SubcompactionThreadPool};
+enum ThreadPoolType{FlushThreadPool, CompactionThreadPool, SubcompactionThreadPool, OtherCompactionThreadPool};
 struct BGItem {
   //  void* tag = nullptr;
   std::function<void(void* args)> function;
