@@ -1573,7 +1573,79 @@ Status DBImpl::DoRemoteCompactionWork3(CompactionState* compact,uint8_t target_n
 
   return status;
 }
+Status DBImpl::DoRemoteCompactionWorkWithSubcompaction(CompactionState* compact,uint8_t target_node_id,uint64_t start_num){//LZYADD
+  printf("DoRemoteCompactionWorkWithSubcompaction:start\n");
+  Compaction* c = compact->compaction;
+  c->GenSubcompactionBoundaries();
+  auto boundaries = c->GetBoundaries(); //level 1 除了第一个，各文件最小值
+  auto sizes = c->GetSizes();//level 1 所有文件的大小
+  assert(boundaries->size() == sizes->size() - 1);
+//  int subcompaction_num = std::min((int)c->GetBoundariesNum(), config::max_compute_subcompactions);
+  if (boundaries->size()<=options_.max_compute_subcompactions){
+    for (size_t i = 0; i <= boundaries->size(); i++) {
+      Slice* start = i == 0 ? nullptr : &(*boundaries)[i - 1];
+      Slice* end = i == boundaries->size() ? nullptr : &(*boundaries)[i];
+      compact->sub_compact_states.emplace_back(c, start, end, (*sizes)[i]);
+    }
+  }else{
+    //Get output level total file size.
+    uint64_t sum = c->GetFileSizesForLevel(1);
+    std::list<int> small_files{};
+    for (int i=0; i< sizes->size(); i++) {
+      if ((*sizes)[i] <= options_.max_file_size/4)
+        small_files.push_back(i);
+    }
+    int big_files_num = boundaries->size() - small_files.size();
+    int files_per_subcompaction = big_files_num/options_.max_compute_subcompactions + 1;//Due to interger round down, we need add 1.
+    double mean = sum * 1.0 / options_.max_compute_subcompactions;
+    for (size_t i = 0; i <= boundaries->size(); i++) {
+      size_t range_size = (*sizes)[i];
+      Slice* start = i == 0 ? nullptr : &(*boundaries)[i - 1];
+      int files_counter = range_size <= options_.max_file_size/4 ? 0 : 1;// count this file. 小文件不算，大文件算1
+      // TODO(Ruihong) make a better strategy to group the boundaries.
+      //Version 1
+//      while (i!=boundaries->size() && range_size < mean &&
+//             range_size + (*sizes)[i+1] <= mean + 3*options_.max_file_size/4){
+//        i++;
+//        range_size += (*sizes)[i];
+//      }
+      //Version 2
+      while (i!=boundaries->size() &&
+             (files_counter<files_per_subcompaction ||(*sizes)[i+1] <= options_.max_file_size/4)){
+        i++;
+        size_t this_file_size = (*sizes)[i];
+        range_size += this_file_size;
+        // Only increase the file counter when add big file.
+        if (this_file_size >= options_.max_file_size/4)
+          files_counter++;
+      }
+      Slice* end = i == boundaries->size() ? nullptr : &(*boundaries)[i];
+      compact->sub_compact_states.emplace_back(c, start, end, range_size);//生成一个由多个level i+1文件组成的SubCompaction任务
+    }
 
+  }
+  printf("DoRemoteCompactionWorkWithSubcompaction: cp1 finish gen SubCompactionTask\n");
+  const size_t num_threads = compact->sub_compact_states.size();
+  assert(num_threads > 0);
+
+  // Launch a thread for each of subcompactions 1...num_threads-1
+  std::vector<port::Thread> thread_pool;
+  thread_pool.reserve(num_threads - 1);
+  std::atomic<uint64_t>* remote_file_num = new std::atomic<uint64_t>(start_num);
+  for (size_t i = 1; i < compact->sub_compact_states.size(); i++) {
+    thread_pool.emplace_back(&DBImpl::RemoteProcessKeyValueCompaction, this,
+                             &compact->sub_compact_states[i],target_node_id,remote_file_num);
+  }
+
+  // Always schedule the first subcompaction (whether or not there are also
+  // others) in the current thread to be efficient with resources
+  RemoteProcessKeyValueCompaction(&compact->sub_compact_states[0],target_node_id,remote_file_num);
+  for (auto& thread : thread_pool) {
+    thread.join();
+  }
+  Status status = Status::OK();
+  return status;
+}
 Status DBImpl::DoRemoteCompactionWork(CompactionState* compact,uint8_t target_node_id){//LZYTODO 用的CN端的Compaction，基本没改，看看能不能直接用
   assert(versions_->NumLevelFiles(compact->compaction->level()) > 0);
   assert(compact->builder == nullptr);
@@ -1786,7 +1858,12 @@ void DBImpl::Other_Compaction_Handler3(void* arg){//参考Memory_Node_Keeper::ss
   //先不做SubCompaction,之后再说LZYTODO
   //接下来的CompactionWork应该不和MN完全一样
   printf("Other_Compaction_Handler:cp1\n");
-  status = DoRemoteCompactionWork3(compact,target_node_id,start_num);//进行数据归并
+  if (options_.usesubcompaction && c.num_input_files(0)>=4 && c.num_input_files(1)>=2){ //做subcompaction
+    status = DoRemoteCompactionWorkWithSubcompaction(compact,target_node_id,start_num);
+  }else{
+    status = DoRemoteCompactionWork3(compact,target_node_id,start_num);
+  }
+  //status = DoRemoteCompactionWork3(compact,target_node_id,start_num);//进行数据归并 不做subcompaction
   printf("Other_Compaction_Handler:cp2\n");
   // undefine_mutex.Lock();
   // if (status.ok()) {
@@ -2542,13 +2619,18 @@ int DBImpl::CompactionTaskWhereToGo(Compaction* compact){
 #if NEARDATACOMPACTION==2
   printf("RemoteCPU_utilization size = %d\n",RemoteCPU_utilization.size());
   if(RemoteCPU_utilization.size() == 2){//先简化模型, 变成2CN-1MN, 测试其他节点Compaction的可能性
+    if(distribute_num == 2){
+      distribute_num = (distribute_num+1)%3;
+      return -1;
+    } 
+    if(distribute_num == 0) {
+      distribute_num = (distribute_num+1)%3;
+      return 0; 
+    }
     for(auto iter:RemoteCPU_utilization){
-      if(iter.first%2 ==0){ //内存节点
-        continue;
-      }else{ //计算节点
-        if(iter.first != rdma_mg->node_id){
-          return iter.first;//两个CN,自己的工作丢给别人
-        }
+      if(iter.first != rdma_mg->node_id && iter.first%2 != 0) {
+        distribute_num = (distribute_num+1)%3;
+        return iter.first; 
       }
     }
   }
@@ -2912,34 +2994,6 @@ void DBImpl::CleanupCompaction(CompactionState* compact) {
   }
   delete compact;
 }
-Status DBImpl::OpenCompactionOutputFileFor(SubcompactionState* compact,uint8_t target_node_id){
-  //LZYTODO SubCompaction可能不做
-  assert(compact != nullptr);
-  assert(compact->builder == nullptr);
-  uint64_t file_number;
-  {
-    file_number = versions_->NewFileNumber();
-    CompactionOutput out;
-    out.number = file_number;
-    out.smallest.Clear();
-    out.largest.Clear();
-    compact->outputs.push_back(out);
-  }
-
-  // Make the output file
-  //  std::string fname = TableFileName(dbname_, file_number);
-  //  Status s = env_->NewWritableFile(fname, &compact->outfile);
-  Status s = Status::OK();
-  if (s.ok()) {
-    if (compact->compaction->table_type == block_based){
-      compact->builder = new TableBuilder_ComputeSide(
-          options_, Compact, target_node_id);
-    }else{
-      compact->builder = new TableBuilder_BACS(options_, Compact, target_node_id);
-    }
-  }
-  return s;
-}
 Status DBImpl::OpenCompactionOutputFileFor(CompactionState* compact,uint8_t target_node_id){
   //LZYTODO 谨慎对待，每个函数都要仔细看
   assert(compact != nullptr);
@@ -2970,6 +3024,34 @@ Status DBImpl::OpenCompactionOutputFileFor(CompactionState* compact,uint8_t targ
       compact->builder = new TableBuilder_BACS(options_, Compact, target_node_id);//在这里与远程内存通信，
       //target_node_id和BACS中的Rep相关， 但是Rep本身也只是记录
     } 
+  }
+  return s;
+}
+Status DBImpl::OpenCompactionOutputFileFor3(SubcompactionState* compact,uint64_t file_num) {
+  assert(compact != nullptr);
+  assert(compact->builder == nullptr);
+  {
+    CompactionOutput out;
+    out.number = file_num;
+    out.smallest.Clear();
+    out.largest.Clear();
+    compact->outputs.push_back(out);
+//    undefine_mutex.Unlock();
+  }
+
+  // Make the output file
+//  std::string fname = TableFileName(dbname_, file_number);
+//  Status s = env_->NewWritableFile(fname, &compact->outfile);
+  Status s = Status::OK();
+  if (s.ok()) {
+    if (compact->compaction->table_type == block_based){
+      compact->builder = new TableBuilder_ComputeSide(
+          options_, Compact, shard_target_node_id);//LZYTODO, 源节点的MN id
+    }else{
+      compact->builder = new TableBuilder_BACS(options_, Compact, shard_target_node_id);
+
+    }
+
   }
   return s;
 }
@@ -3205,7 +3287,7 @@ Status DBImpl::InstallCompactionResultsFor(CompactionState* compact,uint8_t targ
       std::shared_ptr<RemoteMemTableMetaData> meta = 
           std::make_shared<RemoteMemTableMetaData>(0,table_cache_,shard_target_node_id,target_node_id);//LZYCHA
       //TODO make all the metadata written into out
-      meta->number = out.number;//MN无
+      meta->number = out.number;
       meta->level = level+1;
       meta->file_size = out.file_size;
       meta->smallest = out.smallest;
@@ -3232,6 +3314,7 @@ Status DBImpl::InstallCompactionResultsFor(CompactionState* compact,uint8_t targ
         meta->level = level+1;
         meta->smallest = out.smallest;
         meta->largest = out.largest;
+
         meta->remote_data_mrs = out.remote_data_mrs;
         meta->remote_dataindex_mrs = out.remote_dataindex_mrs;
         meta->remote_filter_mrs = out.remote_filter_mrs;
@@ -3696,7 +3779,7 @@ void DBImpl::RemoteDataCompaction(Compaction* c,uint8_t target_node_id){//参考
     imm_num = imm_gen->fetch_add(1);
   }
   send_pointer->imm_num = imm_num;
-  uint64_t input_num_file = c->num_input_files(0) + c->num_input_files(1) + 2;//LZYADD
+  uint64_t input_num_file = c->num_input_files(0) + c->num_input_files(1) + 5;//LZYADD
   uint64_t file_number_start = versions_->NewFileNumberBatch(input_num_file);//LZYADD 预留空间给对端
   send_pointer->start_num = file_number_start;//LZYADD
   // Without persistency we don' need to reply to the remote memory after the compute node
@@ -4751,7 +4834,97 @@ Status DBImpl::DoCompactionWorkWithSubcompaction(CompactionState* compact) {
   write_stall_cv.notify_all();
   return status;
 }
+void DBImpl::RemoteProcessKeyValueCompaction(SubcompactionState* sub_compact,uint8_t target_node_id,std::atomic<uint64_t>* file_num){//LZYADD 参考DBImpl::ProcessKeyValueCompaction
+  assert(sub_compact->builder == nullptr);
+  //Start and End are userkeys.
+  printf("RemoteProcessKeyValueCompaction: start\n");
+  Slice* start = sub_compact->start;
+  Slice* end = sub_compact->end;
+  if (snapshots_.empty()) {
+    sub_compact->smallest_snapshot = versions_->LastSequence();
+  } else {
+    sub_compact->smallest_snapshot = snapshots_.oldest()->sequence_number();
+  }
 
+  Iterator* input = versions_->MakeInputIterator(sub_compact->compaction);
+
+  if (start != nullptr) {
+    InternalKey start_internal(*start, kMaxSequenceNumber, kValueTypeForSeek);
+    input->Seek(start_internal.Encode());
+    input->Next();
+  } else {
+    input->SeekToFirst();
+  }
+  Status status;
+  ParsedInternalKey ikey;
+  std::string current_user_key;
+  bool has_current_user_key = false;
+  SequenceNumber last_sequence_for_key = kMaxSequenceNumber;
+  Slice key;
+  assert(input->Valid());
+  while (input->Valid() && !shutting_down_.load(std::memory_order_acquire)) {
+    key = input->key();
+    bool drop = false;
+    if (!ParseInternalKey(key, &ikey)) {
+      // Do not hide error keys
+      current_user_key.clear();
+      has_current_user_key = false;
+      last_sequence_for_key = kMaxSequenceNumber;
+    } else {
+      if (!has_current_user_key ||
+          user_comparator()->Compare(ikey.user_key, Slice(current_user_key)) !=
+          0) {
+        // First occurrence of this user key
+        current_user_key.assign(ikey.user_key.data(), ikey.user_key.size());
+        has_current_user_key = true;
+        last_sequence_for_key = kMaxSequenceNumber;
+      }
+
+      if (last_sequence_for_key <= sub_compact->smallest_snapshot) {
+        drop = true;  // (A)
+      }
+      last_sequence_for_key = ikey.sequence;
+    }
+    if (!drop) {
+      if (sub_compact->builder == nullptr) {
+        status = OpenCompactionOutputFileFor3(sub_compact,file_num->fetch_add(1)); //LZYCHA
+        if (!status.ok()) {
+          break;
+        }
+      }
+      if (sub_compact->builder->NumEntries() == 0) {
+        sub_compact->current_output()->smallest.DecodeFrom(key);
+      }
+      sub_compact->builder->Add(key, input->value());
+      if (sub_compact->builder->FileSize() >= sub_compact->compaction->MaxOutputFileSize()) {
+        sub_compact->current_output()->largest.DecodeFrom(key);
+        status = FinishCompactionOutputFile(sub_compact, input);
+        if (!status.ok()) {
+          break;
+        }
+      }
+    }
+    if (end != nullptr &&
+        user_comparator()->Compare(ExtractUserKey(key), *end) >= 0) {
+      break;
+    }
+    input->Next();
+  }
+
+  if (status.ok() && shutting_down_.load(std::memory_order_acquire)) {
+    status = Status::IOError("Deleting DB during compaction");
+  }
+  if (status.ok() && sub_compact->builder != nullptr) {
+
+    sub_compact->current_output()->largest.DecodeFrom(key);// The SSTable for subcompaction range will be (start, end]
+    status = FinishCompactionOutputFile(sub_compact, input);
+  }
+  if (status.ok()) {
+    status = input->status();
+  }
+  delete input;
+  printf("RemoteProcessKeyValueCompaction: end\n");
+}
 void DBImpl::ProcessKeyValueCompaction(SubcompactionState* sub_compact){
   assert(sub_compact->builder == nullptr);
   //Start and End are userkeys.

@@ -94,6 +94,7 @@ class DBImpl : public DB{
   int other_CN_compaction = 0;
   int compaction_num = 0;//包括subcompaction
   int subcompaction_num = 0;
+  int distribute_num = 0;
   //double sum_time[33];
   //int sum_time_div[33];
   //double compaction_speed[35];
@@ -321,6 +322,7 @@ class DBImpl : public DB{
   Status DoRemoteCompactionWork(CompactionState* compact,uint8_t target_node_id) EXCLUSIVE_LOCKS_REQUIRED(undefine_mutex); //LZYADD 
   Status DoRemoteCompactionWork2(CompactionState* compact,uint8_t target_node_id) EXCLUSIVE_LOCKS_REQUIRED(undefine_mutex); //LZYADD 
   Status DoRemoteCompactionWork3(CompactionState* compact,uint8_t target_node_id,uint64_t start_num) EXCLUSIVE_LOCKS_REQUIRED(undefine_mutex); //LZYADD 
+  Status DoRemoteCompactionWorkWithSubcompaction(CompactionState* compact,uint8_t target_node_id,uint64_t start_num);//LZYADD
   void BackgroundCall();
   void BackgroundFlush(void* p);
   void BackgroundCompaction(void* p) EXCLUSIVE_LOCKS_REQUIRED(undefine_mutex);
@@ -336,12 +338,13 @@ class DBImpl : public DB{
   Status DoCompactionWork(CompactionState* compact)
       EXCLUSIVE_LOCKS_REQUIRED(undefine_mutex);
   void ProcessKeyValueCompaction(SubcompactionState* sub_compact);
+  void RemoteProcessKeyValueCompaction(SubcompactionState* sub_compact,uint8_t target_node_id,std::atomic<uint64_t>* file_num);//LZYADD
   //TODO: We could probably use corotine to do the compaction because the compaction for
   // large key value size can have large cpu stall time for memroy copy.
   Status DoCompactionWorkWithSubcompaction(CompactionState* compact);
-  Status OpenCompactionOutputFileFor(SubcompactionState* compact,uint8_t target_node_id);//LZYADD
   Status OpenCompactionOutputFileFor(CompactionState* compact,uint8_t target_node_id);//LZYADD
   Status OpenCompactionOutputFile(SubcompactionState* compact);
+  Status OpenCompactionOutputFileFor3(SubcompactionState* compact,uint64_t file_num);//LZYADD
   Status OpenCompactionOutputFile(CompactionState* compact);
   Status OpenCompactionOutputFile3(CompactionState* compact,uint64_t start_num);//LZYADD
   Status FinishCompactionOutputFile(SubcompactionState* compact,
