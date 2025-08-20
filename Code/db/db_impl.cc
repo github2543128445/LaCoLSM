@@ -210,6 +210,7 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
 #endif
 {
   for(int i=0;i<7;i++) trigger_compaction_in_level[i]=trivial_move_in_level[i]= 0,duration_time_in_level[i]=0,compaction_size_in_level[i]=0;
+  for(int i=0;i<10;i++) compaction_time_in_compute[i] = compaction_time_in_memory[i] = 1;
   //for(int i=0;i<=32;i++) sum_time[i] = 0.0,sum_time_div[i] = 0;
   //for(int i=0;i<=32;i++) compaction_speed[i] = 0.0,compaction_speed_div[i] = 0;
   printf("DBImpl start\n");
@@ -358,6 +359,7 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname,
       shard_target_node_id(0)
 {
   for(int i=0;i<7;i++) trigger_compaction_in_level[i]=trivial_move_in_level[i]= 0,duration_time_in_level[i]=0,compaction_size_in_level[i]=0;
+  for(int i=0;i<10;i++) compaction_time_in_compute[i] = compaction_time_in_memory[i] = 1;
   //for(int i=0;i<=32;i++) sum_time[i] = 0.0,sum_time_div[i] = 0;
   //for(int i=0;i<=32;i++) compaction_speed[i] = 0.0,compaction_speed_div[i] = 0;
   std::shared_ptr<RDMA_Manager> rdma_mg = env_->rdma_mg;
@@ -2701,11 +2703,10 @@ void DBImpl::BackgroundCompactionOrDistribute(void *p){
         if (options_.usesubcompaction && c->num_input_files(0)>=4 && c->num_input_files(1)>=2) subcompaction_num++;
 
         if(worknode == -1){//自己做
-          compute_compaction++;
+          compaction_time_local++;
           auto start = std::chrono::high_resolution_clock::now();
           CompactionState* compact = new CompactionState(c);
           if (options_.usesubcompaction && c->num_input_files(0)>=4 && c->num_input_files(1)>=2){
-            subcompaction_num++;
             status = DoCompactionWorkWithSubcompaction(compact);
           } else {
             status = DoCompactionWork(compact);
@@ -2724,8 +2725,8 @@ void DBImpl::BackgroundCompactionOrDistribute(void *p){
           compaction_size_in_level[c->level()] += total_size;
           #endif
 
-        } else if(worknode == 0){//MN做
-          memory_compaction++;
+        } else if(worknode%2 == 0){//MN做
+          compaction_time_in_memory[worknode]++;
           auto start = std::chrono::high_resolution_clock::now();
           NearDataCompaction(c); 
           auto stop = std::chrono::high_resolution_clock::now();
@@ -2739,7 +2740,7 @@ void DBImpl::BackgroundCompactionOrDistribute(void *p){
           compaction_size_in_level[c->level()] += total_size;
           #endif
         } else{ //其他CN做
-          other_CN_compaction++;
+          compaction_time_in_compute[worknode]++;
           printf("BackgroundCompactionOrDistribute: otherCN %d Compaction!\n",worknode);
           RemoteDataCompaction(c,worknode);
         }

@@ -89,9 +89,11 @@ class DBImpl : public DB{
   int trivial_move_in_level[7];
   long long duration_time_in_level[7];
   unsigned compaction_size_in_level[7];
-  int memory_compaction = 0;
-  int compute_compaction = 0;
-  int other_CN_compaction = 0;
+
+  int compaction_time_in_compute[10];
+  int compaction_time_in_memory[10];
+  int compaction_time_local = 0;
+
   int compaction_num = 0;//包括subcompaction
   int subcompaction_num = 0;
   int distribute_num = 0;
@@ -103,6 +105,7 @@ class DBImpl : public DB{
   std::deque<int> insert_lat;
   std::mutex get_lat_mtx;
   std::deque<int> get_lat;
+
   bool last_compaction_in_MN = true;
   void insert_lat_append(int value){
     std::lock_guard<std::mutex> lock(insert_lat_mtx);
@@ -140,8 +143,6 @@ class DBImpl : public DB{
       printf("///level %d has %d compactions and %d trival move\n\tcompaction keeps %lld s, with %u MB///\n",
         i,trigger_compaction_in_level[i],trivial_move_in_level[i],duration_time_in_level[i],compaction_size_in_level[i]);
     }
-    printf("///test adaptive: %d Compute Compaction, %d Memory Compaction///\n",compute_compaction,memory_compaction);
-    printf("///test SubComapction opt: %d SubCompaction, %d all Compaction///\n",subcompaction_num,compaction_num);
     #if NEARDATACOMPACTION == 0
     printf("///Compactor is 0///\n");
     #endif
@@ -150,6 +151,19 @@ class DBImpl : public DB{
     #endif
     #if NEARDATACOMPACTION == 2
     printf("///Compactor is 2///\n");
+    printf("---- Show Compaction Time ----\n");
+    printf("Local = %d\n",compaction_time_local);
+    printf("In MN:\n");
+    for(int i=0;i<10;i+=2){
+      if(compaction_time_in_memory[i]==0) continue;
+      printf("\tMN Compaction Time: Node %d = %d\n",i,compaction_time_in_memory[i]);
+    }
+    printf("In CN:\n");
+    for(int i=1;i<10;i+=2){
+      if(compaction_time_in_compute[i]==0 || i == env_->rdma_mg->node_id) continue;
+      printf("\tCN Compaction Time: Node %d = %d\n",i,compaction_time_in_compute[i]);
+    }
+    printf("---- End Show Compaction Time ----\n");
     #endif
     env_->rdma_mg->print_uti();
     #endif
@@ -172,6 +186,7 @@ class DBImpl : public DB{
       printf("///get latancy:P50 = %d,P90 = %d,P99 = %d,P999 = %d///\n",p50,p90,p99,p999);
     }
     #endif
+    
 
     #ifdef CHECK_COMPACTION_TIME  
     // for(int i=0;i<=32;i++){
