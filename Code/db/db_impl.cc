@@ -26,6 +26,7 @@
 #include <numa.h>
 #include <fstream>
 #include <iomanip>
+#include <queue>
 
 #include "TimberSaw/db.h"
 #include "TimberSaw/env.h"
@@ -283,8 +284,8 @@ printf("DB Impl1: cp1\n");
     options_.max_compute_subcompactions = available_cpu_num;
 
 #else
-    env_->SetBackgroundThreads(options_.now_compute_compactions,ThreadPoolType::CompactionThreadPool);
-    env_->SetBackgroundThreads(options_.max_compute_compactions-options_.now_compute_compactions,ThreadPoolType::OtherCompactionThreadPool);
+    env_->SetBackgroundThreads(options_.now_local_compactions,ThreadPoolType::CompactionThreadPool);
+    env_->SetBackgroundThreads(options_.now_remote_compactions,ThreadPoolType::OtherCompactionThreadPool);
 #endif
     Unpin_bg_pool_.SetBackgroundThreads(1);
 //    if (options_.block_cache != nullptr){
@@ -359,7 +360,7 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname,
       shard_target_node_id(0)
 {
   for(int i=0;i<7;i++) trigger_compaction_in_level[i]=trivial_move_in_level[i]= 0,duration_time_in_level[i]=0,compaction_size_in_level[i]=0;
-  for(int i=0;i<10;i++) compaction_time_in_compute[i] = compaction_time_in_memory[i] = 1;
+  for(int i=0;i<10;i++) compaction_time_in_compute[i] = compaction_time_in_memory[i] = 0;
   //for(int i=0;i<=32;i++) sum_time[i] = 0.0,sum_time_div[i] = 0;
   //for(int i=0;i<=32;i++) compaction_speed[i] = 0.0,compaction_speed_div[i] = 0;
   std::shared_ptr<RDMA_Manager> rdma_mg = env_->rdma_mg;
@@ -384,8 +385,8 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname,
   options_.max_compute_subcompactions = available_cpu_num;
 
 #else
-  env_->SetBackgroundThreads(options_.now_compute_compactions,ThreadPoolType::CompactionThreadPool);
-  env_->SetBackgroundThreads(options_.max_compute_compactions-options_.now_compute_compactions,ThreadPoolType::OtherCompactionThreadPool);
+  env_->SetBackgroundThreads(options_.now_local_compactions,ThreadPoolType::CompactionThreadPool);
+  env_->SetBackgroundThreads(options_.now_remote_compactions,ThreadPoolType::OtherCompactionThreadPool);
 
 #endif
 }
@@ -2374,20 +2375,62 @@ long double DBImpl::RequestRemoteUtilization(){
   return mn_percent;
 }
 void DBImpl::AddCompactionThread(){
-  if(options_.now_compute_compactions == options_.max_compute_compactions) return;
-  if(options_.now_compute_compactions >= options_.max_compute_compactions/2) options_.now_compute_compactions += 2;
-  else options_.now_compute_compactions *= 2;
+  if(options_.now_local_compactions == options_.sum_of_local_and_remote_compactions) return;
+  if(options_.now_local_compactions >= options_.sum_of_local_and_remote_compactions/2) options_.now_local_compactions += 2;
+  else options_.now_local_compactions *= 2;
 
-  if(options_.now_compute_compactions > options_.max_compute_compactions) options_.now_compute_compactions = options_.max_compute_compactions;
-  env_->SetBackgroundThreads(options_.now_compute_compactions,ThreadPoolType::CompactionThreadPool);
+  if(options_.now_local_compactions > options_.sum_of_local_and_remote_compactions) options_.now_local_compactions = options_.sum_of_local_and_remote_compactions;
+  env_->SetBackgroundThreads(options_.now_local_compactions,ThreadPoolType::CompactionThreadPool);
   return;
 }
 void DBImpl::SubCompactionThread(){
-  if(options_.now_compute_compactions == options_.min_compute_compactions) return;
-  options_.now_compute_compactions -= 2;
+  if(options_.now_local_compactions == options_.min_local_compactions) return;
+  options_.now_local_compactions -= 2;
 
-  if(options_.now_compute_compactions < options_.min_compute_compactions) options_.now_compute_compactions = options_.min_compute_compactions;
-  env_->SetBackgroundThreads(options_.now_compute_compactions,ThreadPoolType::CompactionThreadPool);
+  if(options_.now_local_compactions < options_.min_local_compactions) options_.now_local_compactions = options_.min_local_compactions;
+  env_->SetBackgroundThreads(options_.now_local_compactions,ThreadPoolType::CompactionThreadPool);
+  return;
+}
+void DBImpl::AddLocalCompactionThread(){
+  if(options_.now_local_compactions >= options_.max_local_compactions) return;
+  options_.now_local_compactions ++;
+  options_.now_remote_compactions --;
+
+  env_->SetBackgroundThreads(options_.now_local_compactions,ThreadPoolType::CompactionThreadPool);
+  env_->SetBackgroundThreads(options_.now_remote_compactions, ThreadPoolType::OtherCompactionThreadPool);
+  return;
+}
+void DBImpl::SubLocalCompactionThread(){
+  if(options_.now_local_compactions <= options_.min_local_compactions) return;
+  options_.now_local_compactions --;
+  options_.now_remote_compactions ++;
+
+  env_->SetBackgroundThreads(options_.now_local_compactions,ThreadPoolType::CompactionThreadPool);
+  env_->SetBackgroundThreads(options_.now_remote_compactions, ThreadPoolType::OtherCompactionThreadPool);
+  return;
+}
+void DBImpl::QuickAddLocalCompactionThread(){
+  if(options_.now_local_compactions >= options_.max_local_compactions) return;
+  
+  if(options_.now_local_compactions <= options_.max_local_compactions/2) options_.now_local_compactions *=2;
+  else options_.now_local_compactions +=2;
+  if(options_.now_local_compactions>options_.max_local_compactions) options_.now_local_compactions = options_.max_local_compactions;
+
+  options_.now_remote_compactions = options_.sum_of_local_and_remote_compactions - options_.now_local_compactions;
+
+  env_->SetBackgroundThreads(options_.now_local_compactions,ThreadPoolType::CompactionThreadPool);
+  env_->SetBackgroundThreads(options_.now_remote_compactions, ThreadPoolType::OtherCompactionThreadPool);
+  return;
+}
+void DBImpl::QuickSubLocalCompactionThread(){
+  if(options_.now_local_compactions <= options_.min_local_compactions) return;
+  options_.now_local_compactions -=2;
+  if(options_.now_local_compactions < options_.min_local_compactions) options_.now_local_compactions = options_.min_local_compactions;
+
+  options_.now_remote_compactions = options_.sum_of_local_and_remote_compactions - options_.now_local_compactions;
+
+  env_->SetBackgroundThreads(options_.now_local_compactions,ThreadPoolType::CompactionThreadPool);
+  env_->SetBackgroundThreads(options_.now_remote_compactions, ThreadPoolType::OtherCompactionThreadPool);
   return;
 }
 bool DBImpl::CheckWhetherPushDownorNot(Compaction* compact) {
@@ -2404,7 +2447,7 @@ bool DBImpl::CheckWhetherPushDownorNot(Compaction* compact) {
   double task_parallelism = compact->num_input_files(1);
   // core number * CPU utilization percentage which represented the available cores estimated.
   //基于对节点稳定性的要求，不以最大核数作为判断依据，而以设定的最大线程数作为“虚拟核”
-  double virtual_local_core = options_.max_background_flushes+options_.max_compute_compactions+options_.max_compute_subcompactions*options_.max_compute_compactions*0.035+1;
+  double virtual_local_core = options_.max_background_flushes+options_.sum_of_local_and_remote_compactions+options_.max_compute_subcompactions*options_.sum_of_local_and_remote_compactions*0.035+1;
   virtual_local_core = (double)rdma_mg->local_compute_core_number;
   double virtual_remote_core = 1.0+options_.max_memory_compactions+options_.max_memory_subcompactions*options_.max_memory_compactions*0.035+1; 
   //1总控线程（分片）+ Compaction线程 + Comaction线程数*最大SubCompaction线程*频率（经过实验测试）+1冗余量
@@ -2496,7 +2539,7 @@ bool DBImpl::CheckWhetherPushDownorNot(Compaction* compact) {
         SubCompactionThread();
         return true;
       }
-      if(dynamic_compute_available_core > 3){ //&& !rdma_mg->local_compaction_issued.load()){//max_compute_compactions/2 *max_compute_subcompactions *0.035 + 1
+      if(dynamic_compute_available_core > 3){ //&& !rdma_mg->local_compaction_issued.load()){//sum_of_local_and_remote_compactions/2 *max_compute_subcompactions *0.035 + 1
         AddCompactionThread();
         //rdma_mg->local_compaction_issued.store(true);
         return false;
@@ -2612,8 +2655,7 @@ bool DBImpl::CheckByteaddressableOrNot(Compaction* compact) {
 #endif
 
 }
-
-int DBImpl::CompactionTaskWhereToGo(Compaction* compact){
+int DBImpl::CompactionTaskWhereToGoTest(Compaction* compact){
   auto rdma_mg = env_->rdma_mg;
   double LocalCPU_utilization = rdma_mg->local_cpu_percent.load();
   auto &RemoteCPU_utilization=rdma_mg->server_cpu_percent;
@@ -2639,7 +2681,35 @@ int DBImpl::CompactionTaskWhereToGo(Compaction* compact){
 #elif NEARDATACOMPACTION == 0
   return -1;
 #else
-  return 0; //Use NearDataCompaction
+  return shard_target_node_id; //Use NearDataCompaction
+#endif
+}
+int DBImpl::CompactionTaskWhereToGo(Compaction* compact){//LZYTODO
+#if NEARDATACOMPACTION==2
+  auto rdma_mg = env_->rdma_mg;
+
+  double Local_utilization = rdma_mg->local_cpu_percent.load();
+  uint16_t Local_core = rdma_mg->local_compute_core_number;
+
+  double RemoteMN_utilization = rdma_mg->server_cpu_percent.at(shard_target_node_id)->load();
+  uint16_t RemoteMN_core = rdma_mg->remote_core_number_map.at(shard_target_node_id);
+
+  std::map<uint8_t,double> RemoteCN_utilization;
+  std::map<uint8_t,uint16_t> RemoteCN_core;
+
+  for(auto i:rdma_mg->server_cpu_percent){
+    if(i.first%2==0) continue;
+    RemoteCN_utilization[i.first] = i.second->load();
+  }
+  for(auto i:rdma_mg->remote_core_number_map){
+    if(i.first%2==0) continue;
+    RemoteCN_core[i.first] = i.second;
+  }
+  return -1;
+#elif NEARDATACOMPACTION == 0
+  return -1;
+#else
+  return shard_target_node_id; //Use NearDataCompaction
 #endif
 }
 void DBImpl::BackgroundCompactionOrDistribute(void *p){
@@ -2697,7 +2767,7 @@ void DBImpl::BackgroundCompactionOrDistribute(void *p){
         }
        DEBUG_arg("Trival compaction< level 0 file number is %d\n", c->num_input_files(0));
       } else { //LZY : 需要进行Compaction, 先决定谁去做
-        int worknode = CompactionTaskWhereToGo(c);
+        int worknode = CompactionTaskWhereToGoTest(c);
         trigger_compaction_in_level[c->level()]++;
         compaction_num++;
         if (options_.usesubcompaction && c->num_input_files(0)>=4 && c->num_input_files(1)>=2) subcompaction_num++;

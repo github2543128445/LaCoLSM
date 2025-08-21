@@ -283,6 +283,10 @@ class DBImpl : public DB{
 //LZY add v
   void AddCompactionThread();
   void SubCompactionThread();
+  void AddLocalCompactionThread();
+  void SubLocalCompactionThread();
+  void QuickAddLocalCompactionThread();
+  void QuickSubLocalCompactionThread();
 //LZY add ^
 
 
@@ -344,6 +348,7 @@ class DBImpl : public DB{
   void BackgroundCompactionOrDistribute(void *p) EXCLUSIVE_LOCKS_REQUIRED(undefine_mutex);//LZYADD
   std::atomic<int> print_counter = 0;
   int CompactionTaskWhereToGo(Compaction* compact);//LZYADD
+  int CompactionTaskWhereToGoTest(Compaction* compact);//LZYADD
   bool CheckWhetherPushDownorNot(Compaction* compact);
   bool CheckByteaddressableOrNot(Compaction* compact);
   long double RequestRemoteUtilization();
