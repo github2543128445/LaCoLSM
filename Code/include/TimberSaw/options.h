@@ -82,8 +82,6 @@ struct TimberSaw_EXPORT Options {
   int max_memory_compactions = 12;
   int max_memory_subcompactions = 12; 
 
-  int input0_subcompaction_thr = 4;//仅在adptive起效果
-  int input1_subcompaction_thr = 2;
   bool usesubcompaction = true;
   // If true, the database will be created if it is missing.
   bool create_if_missing = true;

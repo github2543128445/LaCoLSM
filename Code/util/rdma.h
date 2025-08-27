@@ -462,6 +462,7 @@ class RDMA_Manager {
   }
 
   void print_uti(){
+    printf("---- Show CPU Utilization ----\n");
     for(auto& item:Remote_utilization){
       if(!Remote_uti_q[item.first].empty()){
         double av_uti = item.second/Remote_uti_q[item.first].size();
@@ -483,6 +484,7 @@ class RDMA_Manager {
       double p999 = local_uti_q[local_uti_q.size()*0.999];
       printf("///Local CN Node %d uti: av = %lf,P50 = %lf,P90 = %lf,P99 = %lf,P999 = %lf///\n",node_id,av_uti,p50,p90,p99,p999);
     }
+    printf("---- End Show CPU Utilization ----\n");
   }
 //LZY add ^
   friend class Memory_Node_Keeper;

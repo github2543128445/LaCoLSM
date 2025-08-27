@@ -175,7 +175,7 @@ SuperVersion::SuperVersion(MemTable* new_mem, MemTableListVersion* new_imm,
 //LZY new ↓
 //LZY new ↑
 
-DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
+DBImpl::DBImpl(const Options& raw_options, const std::string& dbname) //实际测试跑这个
     : env_(raw_options.env),
       internal_comparator_(raw_options.comparator),
       internal_filter_policy_(raw_options.filter_policy),
@@ -211,7 +211,7 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
 #endif
 {
   for(int i=0;i<7;i++) trigger_compaction_in_level[i]=trivial_move_in_level[i]= 0,duration_time_in_level[i]=0,compaction_size_in_level[i]=0;
-  for(int i=0;i<10;i++) compaction_time_in_compute[i] = compaction_time_in_memory[i] = 1;
+  for(int i=0;i<10;i++) compaction_time_in_compute[i] = compaction_time_in_memory[i] = 0;
   //for(int i=0;i<=32;i++) sum_time[i] = 0.0,sum_time_div[i] = 0;
   //for(int i=0;i<=32;i++) compaction_speed[i] = 0.0,compaction_speed_div[i] = 0;
   printf("DBImpl start\n");
@@ -326,7 +326,7 @@ printf("DB Impl1: cp1\n");
 }
 
 //This functon does not contain the creation of the client message handling thread
-DBImpl::DBImpl(const Options& raw_options, const std::string& dbname,
+DBImpl::DBImpl(const Options& raw_options, const std::string& dbname, //实际测试好像不用这个
                const std::string ub, const std::string lb)
     : upper_bound(ub),
       lower_bound(lb),
@@ -1298,11 +1298,10 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
 //    background_compaction_scheduled_ = true;
     void* function_args = nullptr;
     BGThreadMetadata* thread_pool_args1 = new BGThreadMetadata{.db = this, .func_args = function_args};
-    BGThreadMetadata* thread_pool_args2 = new BGThreadMetadata{.db = this, .func_args = function_args};
     env_->Schedule(BGWork_Compaction, static_cast<void*>(thread_pool_args1), ThreadPoolType::CompactionThreadPool);
-    env_->Schedule(BGWork_Compaction, static_cast<void*>(thread_pool_args2), ThreadPoolType::CompactionThreadPool);
-
-
+    //LZYDEL 不知道为什么用两个
+    //BGThreadMetadata* thread_pool_args2 = new BGThreadMetadata{.db = this, .func_args = function_args};
+    //env_->Schedule(BGWork_Compaction, static_cast<void*>(thread_pool_args2), ThreadPoolType::CompactionThreadPool);
     DEBUG("Schedule a Compaction !\n");
   }
 }
@@ -1861,7 +1860,7 @@ void DBImpl::Other_Compaction_Handler3(void* arg){//参考Memory_Node_Keeper::ss
   //先不做SubCompaction,之后再说LZYTODO
   //接下来的CompactionWork应该不和MN完全一样
   printf("Other_Compaction_Handler:cp1\n");
-  if (options_.usesubcompaction && c.num_input_files(0)>=4 && c.num_input_files(1)>=2){ //做subcompaction
+  if (options_.usesubcompaction && c.CanSubCompaction()){ //做subcompaction
     status = DoRemoteCompactionWorkWithSubcompaction(compact,target_node_id,start_num);
   }else{
     status = DoRemoteCompactionWork3(compact,target_node_id,start_num);
@@ -2470,7 +2469,7 @@ bool DBImpl::CheckWhetherPushDownorNot(Compaction* compact) {
   if (compact->level() == 0){//level0
     double final_estimated_time_compute = 0.0;
     double final_estimated_time_memory = 0.0;
-    if(options_.usesubcompaction && compact->num_input_files(0)>=options_.input0_subcompaction_thr && compact->num_input_files(1)>=options_.input1_subcompaction_thr) {//做SubCompaction的情况
+    if(options_.usesubcompaction && compact->CanSubCompaction()) {//做SubCompaction的情况
       double static_compute_achievable_parallelism = options_.max_compute_subcompactions >  task_parallelism? task_parallelism: options_.max_compute_subcompactions;
       double static_memory_achievable_parallelism = options_.max_memory_subcompactions >  task_parallelism? task_parallelism: options_.max_memory_subcompactions;
       double dynamic_compute_achievable_parallelism = dynamic_compute_available_core >  static_compute_achievable_parallelism ? static_compute_achievable_parallelism : dynamic_compute_available_core;
@@ -2511,7 +2510,7 @@ bool DBImpl::CheckWhetherPushDownorNot(Compaction* compact) {
   else{//其他Level 注意给level0让路的情况 让其他level的Compacion更倾向于CN做
     double final_estimated_time_compute = 0.0;
     double final_estimated_time_memory = 0.0;
-    if(options_.usesubcompaction && compact->num_input_files(0)>=options_.input0_subcompaction_thr && compact->num_input_files(1)>=options_.input1_subcompaction_thr) {//做SubCompaction的情况
+    if(options_.usesubcompaction && compact->CanSubCompaction()) {//做SubCompaction的情况
       double static_compute_achievable_parallelism = (options_.max_compute_subcompactions >  task_parallelism? task_parallelism: options_.max_compute_subcompactions);
       double static_memory_achievable_parallelism = (options_.max_memory_subcompactions >  task_parallelism? task_parallelism: options_.max_memory_subcompactions);
       double dynamic_compute_achievable_parallelism = dynamic_compute_available_core >  static_compute_achievable_parallelism ? static_compute_achievable_parallelism : dynamic_compute_available_core;
@@ -2687,25 +2686,231 @@ int DBImpl::CompactionTaskWhereToGoTest(Compaction* compact){
 int DBImpl::CompactionTaskWhereToGo(Compaction* compact){//LZYTODO
 #if NEARDATACOMPACTION==2
   auto rdma_mg = env_->rdma_mg;
+  int aim = 0;
+  int L0_num = compact->num_input_files(0),L1_num = compact->num_input_files(1);
 
   double Local_utilization = rdma_mg->local_cpu_percent.load();
   uint16_t Local_core = rdma_mg->local_compute_core_number;
 
-  double RemoteMN_utilization = rdma_mg->server_cpu_percent.at(shard_target_node_id)->load();
-  uint16_t RemoteMN_core = rdma_mg->remote_core_number_map.at(shard_target_node_id);
-
-  std::map<uint8_t,double> RemoteCN_utilization;
-  std::map<uint8_t,uint16_t> RemoteCN_core;
-
-  for(auto i:rdma_mg->server_cpu_percent){
-    if(i.first%2==0) continue;
-    RemoteCN_utilization[i.first] = i.second->load();
-  }
+  double RMN_utilization = rdma_mg->server_cpu_percent.at(shard_target_node_id)->load();
+  uint16_t RMN_core = rdma_mg->remote_core_number_map.at(shard_target_node_id);
+  
+  std::map<uint8_t,uint16_t> RCN_core;
+  //std::map<uint8_t,double> RCN_utilization;
+  // for(auto i:rdma_mg->server_cpu_percent){
+  //   if(i.first%2==0) continue;
+  //   RCN_utilization[i.first] = i.second->load();
+  // }//时效性，在用的时候再拿
   for(auto i:rdma_mg->remote_core_number_map){
     if(i.first%2==0) continue;
-    RemoteCN_core[i.first] = i.second;
+    RCN_core[i.first] = i.second;
   }
-  return -1;
+
+  double task_parallelism = L1_num;
+  double Local_Score = 0.0;
+  double RCN_Score = 0.0;
+  double RMN_Score = 0.0;
+
+  if (compact->level() == 0){//Level 0
+    if(options_.usesubcompaction && compact->CanSubCompaction()){ //L0 + Sub
+      //Local + L0 + Sub ↓
+      double Local_v_core = rdma_mg->server_cpu_percent.size() + //通信
+                            options_.max_background_flushes +    //flush
+                            options_.sum_of_local_and_remote_compactions + //总Compaction线程
+                            options_.max_compute_subcompactions*options_.sum_of_local_and_remote_compactions*0.035; //赋权的SubCompaction线程
+      //Local_v_core = (double)rdma_mg->local_compute_core_number;//简化模型
+      double Local_v_av_core = Local_v_core *
+                                (Local_utilization > 100.0 ? 0.000001:(100.0 - Local_utilization))/100.0;
+      double Local_max_achievable_parallel = options_.max_compute_subcompactions < task_parallelism ? options_.max_compute_subcompactions : task_parallelism;
+      double Local_now_achievable_parallel = Local_max_achievable_parallel < Local_v_av_core ? Local_max_achievable_parallel : Local_v_av_core;
+      
+      if(L0_num+L1_num<32) Local_Score = Local_now_achievable_parallel;//小任务
+      else  Local_Score = Local_max_achievable_parallel;//大任务
+      //Local + L0 + Sub ↑
+
+      //RMN + L0 + Sub ↓
+      double RMN_v_core = RCN_core.size() + //通信
+                          options_.max_memory_compactions + //总Compaction线程
+                          options_.max_memory_compactions*options_.max_memory_subcompactions*0.035; //赋权的SubCompaction线程
+      double RMN_v_av_core = RMN_v_core *
+                                (RMN_utilization > 100.0 ? 0.000001:(100.0 - RMN_utilization))/100.0;
+      double RMN_max_achievable_parallel = options_.max_memory_subcompactions < task_parallelism ? options_.max_memory_subcompactions : task_parallelism;
+      double RMN_now_achievable_parallel = RMN_max_achievable_parallel < RMN_v_av_core ? RMN_max_achievable_parallel : RMN_v_av_core;
+
+      RMN_Score = (17.0/8.0) * RMN_now_achievable_parallel;//不分大小任务，因为MN连多个CN，不可能有机会all in           
+      //RMN + L0 + Sub ↑
+
+      //RCN + L0 + Sub ↓
+      int RCN_best_id=-1;
+      for(auto it : RCN_core){
+        double RCN_utilization = rdma_mg->server_cpu_percent[it.first]->load();
+        double RCN_v_core = Local_v_av_core;
+        double RCN_v_av_core = RCN_v_core *
+                                (RCN_utilization > 100.0 ? 0.000001:(100.0 - RCN_utilization))/100.0;
+        double RCN_max_achievable_parallel = options_.max_compute_subcompactions < task_parallelism ? options_.max_compute_subcompactions : task_parallelism;
+        double RCN_now_achievable_parallel = RCN_max_achievable_parallel < RCN_v_av_core ? RCN_max_achievable_parallel : RCN_v_av_core;
+        double RCN_temp_Score = 0.8*RCN_now_achievable_parallel;//LZYTODO,应该差一些
+        if(RCN_temp_Score > RCN_Score){
+          RCN_best_id = it.first;
+          RCN_Score = RCN_temp_Score;
+        }
+      }
+      //RCN + L0 + Sub ↑
+
+      if(Local_Score > RMN_Score && Local_Score > RCN_Score){ //LZYTODO
+        aim = -1;
+      }else if(RMN_Score > Local_Score && RMN_Score > RCN_Score){
+        aim = shard_target_node_id;
+      }else{
+        aim = RCN_best_id;
+      }
+    }else{//L0 no Sub
+      //Local + L0 no Sub ↓
+      double Local_v_core = rdma_mg->server_cpu_percent.size() + //通信
+                            options_.max_background_flushes +    //flush
+                            options_.sum_of_local_and_remote_compactions + //总Compaction线程
+                            options_.max_compute_subcompactions*options_.sum_of_local_and_remote_compactions*0.035; //赋权的SubCompaction线程
+      //Local_v_core = (double)rdma_mg->local_compute_core_number;//简化模型
+      double Local_v_av_core = Local_v_core *
+                                (Local_utilization > 100.0 ? 0.000001:(100.0 - Local_utilization))/100.0;
+      
+      Local_Score = 300;//LZYTODO
+      //Local + L0 no Sub ↑
+
+      //RMN + L0 no Sub ↓
+      double RMN_v_core = RCN_core.size() + //通信
+                          options_.max_memory_compactions + //总Compaction线程
+                          options_.max_memory_compactions*options_.max_memory_subcompactions*0.035; //赋权的SubCompaction线程
+      double RMN_v_av_core = RMN_v_core *
+                                (RMN_utilization > 100.0 ? 0.000001:(100.0 - RMN_utilization))/100.0;
+
+      RMN_Score = 58.257*exp(0.3783*RMN_v_av_core);
+      //RMN + L0 no Sub ↑
+
+      //RCN + L0 no Sub ↓
+      int RCN_best_id=-1;
+      for(auto it : RCN_core){
+        double RCN_utilization = rdma_mg->server_cpu_percent[it.first]->load();
+        double RCN_v_core = Local_v_av_core;
+        double RCN_v_av_core = RCN_v_core *
+                                (RCN_utilization > 100.0 ? 0.000001:(100.0 - RCN_utilization))/100.0;
+
+        double RCN_temp_Score = 500 * RCN_v_av_core/RCN_v_core;//LZYTODO,应该差一些
+        if(RCN_temp_Score > RCN_Score){
+          RCN_best_id = it.first;
+          RCN_Score = RCN_temp_Score;
+        }
+      }
+      //RCN + L0 no Sub ↑
+
+      if(Local_Score > RMN_Score && Local_Score > RCN_Score){ //LZYTODO
+        aim = -1;
+      }else if(RMN_Score > Local_Score && RMN_Score > RCN_Score){
+        aim = shard_target_node_id;
+      }else{
+        aim = RCN_best_id;
+      }
+    }
+  }else{//Level N
+    if(options_.usesubcompaction && compact->CanSubCompaction()){//LN + Sub
+      //Local + LN + Sub ↓
+      double Local_v_core = rdma_mg->server_cpu_percent.size() + //通信
+                            options_.max_background_flushes +    //flush
+                            options_.sum_of_local_and_remote_compactions + //总Compaction线程
+                            options_.max_compute_subcompactions*options_.sum_of_local_and_remote_compactions*0.035; //赋权的SubCompaction线程
+      //Local_v_core = (double)rdma_mg->local_compute_core_number;//简化模型
+      double Local_v_av_core = Local_v_core *
+                                (Local_utilization > 100.0 ? 0.000001:(100.0 - Local_utilization))/100.0;
+      double Local_max_achievable_parallel = options_.max_compute_subcompactions < task_parallelism ? options_.max_compute_subcompactions : task_parallelism;
+      double Local_now_achievable_parallel = Local_max_achievable_parallel < Local_v_av_core ? Local_max_achievable_parallel : Local_v_av_core;
+      
+      Local_Score = Local_now_achievable_parallel;
+      //Local + LN + Sub ↑
+
+      //RMN + LN + Sub ↓
+      double RMN_v_core = RCN_core.size() + //通信
+                          options_.max_memory_compactions + //总Compaction线程
+                          options_.max_memory_compactions*options_.max_memory_subcompactions*0.035; //赋权的SubCompaction线程
+      double RMN_v_av_core = RMN_v_core *
+                                (RMN_utilization > 100.0 ? 0.000001:(100.0 - RMN_utilization))/100.0;
+      double RMN_max_achievable_parallel = options_.max_memory_subcompactions < task_parallelism ? options_.max_memory_subcompactions : task_parallelism;
+      double RMN_now_achievable_parallel = RMN_max_achievable_parallel < RMN_v_av_core ? RMN_max_achievable_parallel : RMN_v_av_core;
+
+      RMN_Score = (17.0/8.0) * RMN_now_achievable_parallel;      
+      //RMN + LN + Sub ↑
+
+      //RCN + LN + Sub ↓
+      int RCN_best_id=-1;
+      for(auto it : RCN_core){
+        double RCN_utilization = rdma_mg->server_cpu_percent[it.first]->load();
+        double RCN_v_core = Local_v_av_core;
+        double RCN_v_av_core = RCN_v_core *
+                                (RCN_utilization > 100.0 ? 0.000001:(100.0 - RCN_utilization))/100.0;
+        double RCN_max_achievable_parallel = options_.max_compute_subcompactions < task_parallelism ? options_.max_compute_subcompactions : task_parallelism;
+        double RCN_now_achievable_parallel = RCN_max_achievable_parallel < RCN_v_av_core ? RCN_max_achievable_parallel : RCN_v_av_core;
+        double RCN_temp_Score = 0.8*RCN_now_achievable_parallel;//LZYTODO,应该差一些
+        if(RCN_temp_Score > RCN_Score){
+          RCN_best_id = it.first;
+          RCN_Score = RCN_temp_Score;
+        }
+      }
+      //RCN + LN + Sub ↑
+
+      if(Local_Score > RMN_Score && Local_Score > RCN_Score){ //LZYTODO
+        aim = -1;
+      }else if(RMN_Score > Local_Score && RMN_Score > RCN_Score){
+        aim = shard_target_node_id;
+      }else{
+        aim = RCN_best_id;
+      }      
+      
+    }else{//LN no Sub
+      //最低优先级，仅根据utilization
+      double Local_v_core = rdma_mg->server_cpu_percent.size() + //通信
+                            options_.max_background_flushes +    //flush
+                            options_.sum_of_local_and_remote_compactions + //总Compaction线程
+                            options_.max_compute_subcompactions*options_.sum_of_local_and_remote_compactions*0.035; //赋权的SubCompaction线程
+      //Local_v_core = (double)rdma_mg->local_compute_core_number;//简化模型
+      double Local_v_av_core = Local_v_core *
+                                (Local_utilization > 100.0 ? 0.000001:(100.0 - Local_utilization))/100.0;
+
+      double RMN_v_core = RCN_core.size() + //通信
+                          options_.max_memory_compactions + //总Compaction线程
+                          options_.max_memory_compactions*options_.max_memory_subcompactions*0.035; //赋权的SubCompaction线程
+      double RMN_v_av_core = RMN_v_core *
+                                (RMN_utilization > 100.0 ? 0.000001:(100.0 - RMN_utilization))/100.0;
+                              
+      int RCN_best_id=-1;
+      int RCN_most_core=0;
+      for(auto it : RCN_core){
+        double RCN_utilization = rdma_mg->server_cpu_percent[it.first]->load();
+        double RCN_v_core = Local_v_av_core;
+        double RCN_v_av_core = RCN_v_core *
+                                (RCN_utilization > 100.0 ? 0.000001:(100.0 - RCN_utilization))/100.0;
+        if(RCN_v_av_core > RCN_most_core){
+          RCN_best_id = it.first;
+          RCN_most_core = RCN_v_av_core;
+        }
+      }
+
+      if(Local_v_av_core < 0.5 && RMN_v_av_core < 0.5 && RCN_most_core < 0.5){
+        usleep(compact->level()*50);
+        printf("CompactionTaskWhereToGo : busy!\n");
+        return CompactionTaskWhereToGo(compact);
+      }
+      if(RMN_v_av_core > 1.0){
+        aim = shard_target_node_id;
+      }else if(Local_v_av_core > 1.0){
+        aim = -1;
+      }else if(RCN_most_core > 3.0){
+        aim = RCN_best_id;
+      }else{
+        aim = -1;
+      }    
+    }
+  }
+  printf("CompactionTaskWhereToGo : Answer is %d\n",aim);
+  return aim;
 #elif NEARDATACOMPACTION == 0
   return -1;
 #else
@@ -2767,16 +2972,16 @@ void DBImpl::BackgroundCompactionOrDistribute(void *p){
         }
        DEBUG_arg("Trival compaction< level 0 file number is %d\n", c->num_input_files(0));
       } else { //LZY : 需要进行Compaction, 先决定谁去做
-        int worknode = CompactionTaskWhereToGoTest(c);
+        int worknode = CompactionTaskWhereToGo(c);
         trigger_compaction_in_level[c->level()]++;
         compaction_num++;
-        if (options_.usesubcompaction && c->num_input_files(0)>=4 && c->num_input_files(1)>=2) subcompaction_num++;
+        if (options_.usesubcompaction && c->CanSubCompaction()) subcompaction_num++;
 
         if(worknode == -1){//自己做
           compaction_time_local++;
           auto start = std::chrono::high_resolution_clock::now();
           CompactionState* compact = new CompactionState(c);
-          if (options_.usesubcompaction && c->num_input_files(0)>=4 && c->num_input_files(1)>=2){
+          if (options_.usesubcompaction && c->CanSubCompaction()){
             status = DoCompactionWorkWithSubcompaction(compact);
           } else {
             status = DoCompactionWork(compact);
@@ -2785,7 +2990,8 @@ void DBImpl::BackgroundCompactionOrDistribute(void *p){
           if (!status.ok()) RecordBackgroundError(status);
           CleanupCompaction(compact);
           auto stop = std::chrono::high_resolution_clock::now();
-
+          int compaction_latancy = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start).count();
+          compaction_latancy_append(compaction_latancy);
           #ifdef CHECK_COMPACTION_TIME
           auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
           uint64_t total_size = 0;
@@ -2800,6 +3006,8 @@ void DBImpl::BackgroundCompactionOrDistribute(void *p){
           auto start = std::chrono::high_resolution_clock::now();
           NearDataCompaction(c); 
           auto stop = std::chrono::high_resolution_clock::now();
+          int compaction_latancy = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start).count();
+          compaction_latancy_append(compaction_latancy);
 
           #ifdef CHECK_COMPACTION_TIME
           auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
@@ -2811,8 +3019,12 @@ void DBImpl::BackgroundCompactionOrDistribute(void *p){
           #endif
         } else{ //其他CN做
           compaction_time_in_compute[worknode]++;
+          auto start = std::chrono::high_resolution_clock::now();
           printf("BackgroundCompactionOrDistribute: otherCN %d Compaction!\n",worknode);
           RemoteDataCompaction(c,worknode);
+          auto stop = std::chrono::high_resolution_clock::now();
+          int compaction_latancy = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start).count();
+          compaction_latancy_append(compaction_latancy);
         }
       }//end of need real compaction
     }//end of c!=nullptr

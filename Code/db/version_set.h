@@ -545,7 +545,9 @@ class Compaction {
   // Return the object that holds the edits to the descriptor done
   // by this compaction.
   VersionEdit* edit() { return &edit_; }
-
+  bool CanSubCompaction(){
+    return (num_input_files(0)>= 4 && num_input_files(1)>=2);
+  }
   // "which" must be either 0 or 1
   int num_input_files(int which) const { return inputs_[which].size(); }
   uint64_t Total_data_size() const {

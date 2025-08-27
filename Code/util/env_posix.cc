@@ -83,7 +83,7 @@ void PosixEnv::Schedule(
     case FlushThreadPool:
       if (flushing.queue_len_.load()>256){
         //If there has already be enough compaction scheduled, then drop this one
-        DEBUG_arg("queue length has been too long %d elements in the queue\n", flushing.queue_len_.load());
+        DEBUG_arg("FlushThreadPool : queue length has been too long %d elements in the queue\n", flushing.queue_len_.load());
         return;
       }
 //      DEBUG_arg("flushing thread pool task queue length %zu\n", flushing.queue_.size());
@@ -92,7 +92,7 @@ void PosixEnv::Schedule(
     case CompactionThreadPool:
       if (compaction.queue_len_.load()>256){
         //If there has already be enough compaction scheduled, then drop this one
-        DEBUG_arg("queue length has been too long %d elements in the queue\n", compaction.queue_len_.load());
+        DEBUG_arg("CompactionThreadPool : queue length has been too long %d elements in the queue\n", compaction.queue_len_.load());
         return;
       }
       compaction.Schedule(background_work_function, background_work_arg);
@@ -100,7 +100,7 @@ void PosixEnv::Schedule(
     case OtherCompactionThreadPool:
       if (other_compaction.queue_len_.load()>256){
         //If there has already be enough compaction scheduled, then drop this one
-        DEBUG_arg("queue length has been too long %d elements in the queue\n", other_compaction.queue_len_.load());
+        DEBUG_arg("OtherCompactionThreadPool : queue length has been too long %d elements in the queue\n", other_compaction.queue_len_.load());
         return;
       }
       other_compaction.Schedule(background_work_function, background_work_arg);

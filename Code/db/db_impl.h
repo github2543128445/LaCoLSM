@@ -97,6 +97,10 @@ class DBImpl : public DB{
   int compaction_num = 0;//包括subcompaction
   int subcompaction_num = 0;
   int distribute_num = 0;
+
+  std::deque<int> compaction_latancy_all;
+  std::mutex compaction_latancy_all_mtx;
+
   //double sum_time[33];
   //int sum_time_div[33];
   //double compaction_speed[35];
@@ -107,6 +111,11 @@ class DBImpl : public DB{
   std::deque<int> get_lat;
 
   bool last_compaction_in_MN = true;
+
+  void compaction_latancy_append(int value){
+    std::lock_guard<std::mutex> lock(compaction_latancy_all_mtx);
+    compaction_latancy_all.push_back(value);
+  }
   void insert_lat_append(int value){
     std::lock_guard<std::mutex> lock(insert_lat_mtx);
     insert_lat.push_back(value);
@@ -168,24 +177,52 @@ class DBImpl : public DB{
     env_->rdma_mg->print_uti();
     #endif
 
-    #ifdef CHECK_INSERT_LAT  
+    #ifdef CHECK_INSERT_LAT 
+    printf("---- Show OPT Latancy ----\n"); 
     if(!insert_lat.empty()){
       std::sort(insert_lat.begin(),insert_lat.end());
+      double avg = 0.0;
+      int q_size = insert_lat.size();
+      for(auto& item:insert_lat){
+        avg += ((double)item)/q_size;
+      }
       int p50 = insert_lat[insert_lat.size()*0.5];
       int p90 = insert_lat[insert_lat.size()*0.9];
       int p99 = insert_lat[insert_lat.size()*0.99];
       int p999 = insert_lat[insert_lat.size()*0.999];
-      printf("///insert latancy:P50 = %d,P90 = %d,P99 = %d,P999 = %d///\n",p50,p90,p99,p999);
+      printf("///insert latancy:avg = %d,P50 = %d,P90 = %d,P99 = %d,P999 = %d///\n",avg,p50,p90,p99,p999);
     }
     if(!get_lat.empty()){
       std::sort(get_lat.begin(),get_lat.end());
+      double avg = 0.0;
+      int q_size = get_lat.size();
+      for(auto& item:get_lat){
+        avg += ((double)item)/q_size;
+      }
       int p50 = get_lat[get_lat.size()*0.5];
       int p90 = get_lat[get_lat.size()*0.9];
       int p99 = get_lat[get_lat.size()*0.99];
       int p999 = get_lat[get_lat.size()*0.999];
-      printf("///get latancy:P50 = %d,P90 = %d,P99 = %d,P999 = %d///\n",p50,p90,p99,p999);
+      printf("///get latancy:avg = %d,P50 = %d,P90 = %d,P99 = %d,P999 = %d///\n",avg,p50,p90,p99,p999);
     }
+    printf("---- End Show OPT Latancy ----\n");
     #endif
+
+    printf("---- Show Compaction Latancy ----\n");
+    if(!compaction_latancy_all.empty()){
+      std::sort(compaction_latancy_all.begin(),compaction_latancy_all.end());
+      double avg = 0.0;
+      int q_size = compaction_latancy_all.size();
+      for(auto& item:compaction_latancy_all){
+        avg += ((double)item)/q_size;
+      }
+      int p50 = compaction_latancy_all[q_size*0.5];
+      int p90 = compaction_latancy_all[q_size*0.9];
+      int p99 = compaction_latancy_all[q_size*0.99];
+      int p999 = compaction_latancy_all[q_size*0.999];
+      printf("///compaction latancy:avg = %d,P50 = %d,P90 = %d,P99 = %d,P999 = %d///\n",avg,p50,p90,p99,p999);
+    }
+    printf("---- End Show Compaction Latancy ----\n");
     
 
     #ifdef CHECK_COMPACTION_TIME  

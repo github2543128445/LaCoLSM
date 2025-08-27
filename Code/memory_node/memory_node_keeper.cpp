@@ -2199,13 +2199,7 @@ printf("server_sock_connect : servername %s. port %d\n",servername,port);
     DEBUG_arg("Compaction decoded, input file level is %d \n", c.level());
 
     CompactionState* compact = new CompactionState(&c);
-    //LZY change v
-// #if NEARDATACOMPACTION==2        // Only when there is enough input level files and output level files will the subcompaction triggered
-//     if (usesubcompaction && c.num_input_files(0)>=opts->input0_subcompaction_thr && c.num_input_files(1)>=opts->input1_subcompaction_thr){   
-// #else
-//     if (usesubcompaction && c.num_input_files(0)>=4 && c.num_input_files(1)>=2){ 
-// #endif
-    if (usesubcompaction && c.num_input_files(0)>=4 && c.num_input_files(1)>=2){ 
+    if (usesubcompaction && c.CanSubCompaction()){ 
       status = DoCompactionWorkWithSubcompaction(compact, client_ip);//返回
     }else{
       status = DoCompactionWork(compact, client_ip);
