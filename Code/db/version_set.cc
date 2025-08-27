@@ -753,7 +753,7 @@ class VersionSet::Builder {
       const uint64_t number = std::get<1>(deleted_file_set_kvp);
       const uint8_t node_id = std::get<2>(deleted_file_set_kvp);
       levels_[level].deleted_files.insert({number, node_id});
-      printf("VersionSet::Apply: Delete file Level is %d, Num is %lu, Belong_node_id is %d\n", level, number, node_id);
+      //printf("VersionSet::Apply: Delete file Level is %d, Num is %lu, Belong_node_id is %d\n", level, number, node_id);
     }
 
     // Add new files
@@ -767,18 +767,18 @@ class VersionSet::Builder {
       f->allowed_seeks = static_cast<int>((f->file_size / 16384U));//LZY: x*16KB
       if (f->allowed_seeks < 100) f->allowed_seeks = 100;
       // if (levels_[level].deleted_files.find(f->number)!= levels_[level].deleted_files.end()){
-      //   printf("VesrsionSet::Apply: !!!Add file and Deleted!!!, Level is %d, Num is %lu, Belong_node_id is %d\n", level, f->number, f->belong_node_id);
+      //   printf("VersionSet::Apply: !!!Add file and Deleted!!!, Level is %d, Num is %lu, Belong_node_id is %d\n", level, f->number, f->belong_node_id);
       // }
       // std::pair <std::multimap<uint64_t, uint8_t>::iterator, std::multimap<uint64_t ,uint8_t>::iterator>
       // ret = levels_[level].deleted_files.equal_range(f->number);//找所有number一致的文件
       // for (std::multimap<uint64_t, uint8_t>::iterator it=ret.first; it!=ret.second; ++it){
       //   if (it->second == f->belong_node_id){
       //     levels_[level].deleted_files.erase(it);
-      //     printf("VesrsionSet::Apply: !!!Add file and Deleted, erase it!!!, Level is %d, Num is %lu, Belong_node_id is %d\n", level, f->number, f->belong_node_id);
+      //     printf("VersionSet::Apply: !!!Add file and Deleted, erase it!!!, Level is %d, Num is %lu, Belong_node_id is %d\n", level, f->number, f->belong_node_id);
       //   }
       // }
       levels_[level].added_files->insert(f);
-      printf("VesrsionSet::Apply: Add file, Level is %d, Num is %lu, Belong_node_id is %d\n", level, f->number, f->belong_node_id);
+      //printf("VersionSet::Apply: Add file, Level is %d, Num is %lu, Belong_node_id is %d\n", level, f->number, f->belong_node_id);
     }
   }
   void Apply(VersionEdit* edit, Version* current) {//LZY:将新添加的文件最终 levels_[level].added_files->insert(f);
@@ -796,7 +796,7 @@ class VersionSet::Builder {
       const uint64_t number = std::get<1>(deleted_file_set_kvp);
       const uint8_t node_id = std::get<2>(deleted_file_set_kvp);
       levels_[level].deleted_files.insert({number, node_id});
-      printf("VersionSet::Apply: Delete file Level is %d, Num is %lu, Belong_node_id is %d\n", level, number, node_id);
+      //printf("VersionSet::Apply: Delete file Level is %d, Num is %lu, Belong_node_id is %d\n", level, number, node_id);
     }
 //    printf("Apply: level 0 deleted file size %lu\n", levels_[0].deleted_files.size());
 //    printf("Apply: level 1 deleted file size %lu\n", levels_[1].deleted_files.size());
@@ -826,19 +826,19 @@ class VersionSet::Builder {
       if (f->allowed_seeks < 100) f->allowed_seeks = 100;
       //Tothink: Why we have delete file here
       if (levels_[level].deleted_files.find(f->number)!= levels_[level].deleted_files.end()){
-        printf("VesrsionSet::Apply: !!!Add file and Deleted!!!, Level is %d, Num is %lu, Belong_node_id is %d\n", level, f->number, f->belong_node_id);
+        //printf("VersionSet::Apply: !!!Add file and Deleted!!!, Level is %d, Num is %lu, Belong_node_id is %d\n", level, f->number, f->belong_node_id);
       }
       std::pair <std::multimap<uint64_t, uint8_t>::iterator, std::multimap<uint64_t ,uint8_t>::iterator>
       ret = levels_[level].deleted_files.equal_range(f->number);//找所有number一致的文件
       for (std::multimap<uint64_t, uint8_t>::iterator it=ret.first; it!=ret.second; ++it){
         if (it->second == f->belong_node_id){
           levels_[level].deleted_files.erase(it);
-          printf("VesrsionSet::Apply: !!!Add file and Deleted, erase it!!!, Level is %d, Num is %lu, Belong_node_id is %d\n", level, f->number, f->belong_node_id);
+          //printf("VersionSet::Apply: !!!Add file and Deleted, erase it!!!, Level is %d, Num is %lu, Belong_node_id is %d\n", level, f->number, f->belong_node_id);
         }
         
       }
       levels_[level].added_files->insert(f);
-      printf("VesrsionSet::Apply: Add file, Level is %d, Num is %lu, Belong_node_id is %d\n", level, f->number, f->belong_node_id);
+      //printf("VersionSet::Apply: Add file, Level is %d, Num is %lu, Belong_node_id is %d\n", level, f->number, f->belong_node_id);
       //TODO: Why deleted file will be be remove from deletedfiles if it exist in added file
       //printf("Apply2: level 1 deleted file size %lu\n", levels_[1].deleted_files.size());
     }

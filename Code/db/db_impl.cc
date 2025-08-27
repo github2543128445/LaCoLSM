@@ -923,7 +923,7 @@ Status DBImpl::WriteLevel0Table(FlushJob* job, VersionEdit* edit) {
   stats.micros = env_->NowMicros() - start_micros;
   stats.bytes_written = meta->file_size;
   stats_[level].Add(stats);
-  printf("WriteLevel0Table: new table Level is %d, Num is %lu, Belongs to %lu\n",meta->level,meta->number,meta->belong_node_id);//LZYDEBUG
+  //printf("WriteLevel0Table: new table Level is %d, Num is %lu, Belongs to %lu\n",meta->level,meta->number,meta->belong_node_id);//LZYDEBUG
 //  write_stall_mutex_.AssertNotHeld();
   return s;
 }
