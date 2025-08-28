@@ -984,6 +984,8 @@ class Benchmark {
       delete arg[i].thread;
     }
     delete[] arg;
+    rdma_mg->Finish_and_Wait();
+    if(n>10) exit(0);//LZYADD
     rdma_mg->Print_Remote_CPU_RPC(0);
     db_->WaitforAllbgtasks(false);
     if (method == &Benchmark::WriteRandom || method == &Benchmark::WriteRandomSharded)
@@ -991,8 +993,6 @@ class Benchmark {
 
     if (method == &Benchmark::ReadRandom || method == &Benchmark::ReadRandom_Sharded)
       Validation_Read();
-
-    rdma_mg->Finish_and_Wait();
   }
 
   void Crc32c(ThreadState* thread) {

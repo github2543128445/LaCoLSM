@@ -147,11 +147,11 @@ Status TableCache::FindTable(
 #endif
       }
     }else{
-      printf("FindTable: Cache Hit2\n");
+      //printf("FindTable: Cache Hit2\n");
     }
     hash_mtx[hash_value].unlock();
   }else{
-    printf("FindTable: Cache Hit1\n");
+    //printf("FindTable: Cache Hit1\n");
   }
 
   return s;

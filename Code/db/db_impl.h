@@ -385,7 +385,8 @@ class DBImpl : public DB{
   void BackgroundCompactionOrDistribute(void *p) EXCLUSIVE_LOCKS_REQUIRED(undefine_mutex);//LZYADD
   std::atomic<int> print_counter = 0;
   int CompactionTaskWhereToGo(Compaction* compact);//LZYADD
-  int CompactionTaskWhereToGoTest(Compaction* compact);//LZYADD
+  int CompactionTaskWhereToGoMod3(Compaction* compact);//LZYADD
+  int CompactionTaskWhereToGoPureRemote(Compaction* compact);//LZYADD
   bool CheckWhetherPushDownorNot(Compaction* compact);
   bool CheckByteaddressableOrNot(Compaction* compact);
   long double RequestRemoteUtilization();

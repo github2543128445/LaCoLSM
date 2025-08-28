@@ -2654,7 +2654,24 @@ bool DBImpl::CheckByteaddressableOrNot(Compaction* compact) {
 #endif
 
 }
-int DBImpl::CompactionTaskWhereToGoTest(Compaction* compact){
+int DBImpl::CompactionTaskWhereToGoPureRemote(Compaction* compact){//全由对端做
+  auto rdma_mg = env_->rdma_mg;
+  double LocalCPU_utilization = rdma_mg->local_cpu_percent.load();
+  auto &RemoteCPU_utilization=rdma_mg->server_cpu_percent;
+  //double RemoteCPU_utilization= rdma_mg->server_cpu_percent.at(shard_target_node_id)->load();
+#if NEARDATACOMPACTION==2
+  for(auto iter:RemoteCPU_utilization){
+    if(iter.first != rdma_mg->node_id && iter.first%2 != 0) {
+      return iter.first; 
+    }
+  }
+#elif NEARDATACOMPACTION == 0
+  return -1;
+#else
+  return shard_target_node_id; //Use NearDataCompaction
+#endif
+}
+int DBImpl::CompactionTaskWhereToGoMod3(Compaction* compact){
   auto rdma_mg = env_->rdma_mg;
   double LocalCPU_utilization = rdma_mg->local_cpu_percent.load();
   auto &RemoteCPU_utilization=rdma_mg->server_cpu_percent;
@@ -2972,7 +2989,7 @@ void DBImpl::BackgroundCompactionOrDistribute(void *p){
         }
        DEBUG_arg("Trival compaction< level 0 file number is %d\n", c->num_input_files(0));
       } else { //LZY : 需要进行Compaction, 先决定谁去做
-        int worknode = CompactionTaskWhereToGo(c);
+        int worknode = CompactionTaskWhereToGoPureRemote(c);
         trigger_compaction_in_level[c->level()]++;
         compaction_num++;
         if (options_.usesubcompaction && c->CanSubCompaction()) subcompaction_num++;
@@ -4062,7 +4079,7 @@ void DBImpl::RemoteDataCompaction(Compaction* c,uint8_t target_node_id){//参考
     imm_num = imm_gen->fetch_add(1);
   }
   send_pointer->imm_num = imm_num;
-  uint64_t input_num_file = c->num_input_files(0) + c->num_input_files(1) + 5;//LZYADD
+  uint64_t input_num_file =4 + 5*(c->num_input_files(0) + c->num_input_files(1))/4;//LZYADD
   uint64_t file_number_start = versions_->NewFileNumberBatch(input_num_file);//LZYADD 预留空间给对端
   send_pointer->start_num = file_number_start;//LZYADD
   // Without persistency we don' need to reply to the remote memory after the compute node
