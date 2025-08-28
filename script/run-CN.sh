@@ -70,12 +70,12 @@ comp_p99=$(extract_value 'compaction latancy:.*P99 = \K\d+' 0)
 comp_p999=$(extract_value 'compaction latancy:.*P999 = \K\d+' 0)
 
 # 构建CSV行（Compactor作为第一列）
-csv_row="$compactor,$node_id,$thread,$ops_per_thread,$throughput,$bandwith,$lat_avg,$lat_p50,$lat_p90,$lat_p99,$lat_p999,$comp_avg,$comp_p50,$comp_p90,$comp_p99,$comp_p999"
+csv_row="$compactor,$node_id,$thread,$ops_per_thread,$throughput,$bandwith,$lat_avg,$lat_p50,$lat_p90,$lat_p99,$comp_avg,$comp_p50,$comp_p90"
 
 # 写入CSV文件（更新标题行）
 csv_file="../temp.csv"
 if [ ! -f "$csv_file" ]; then
-    echo "compactor,node_id,thread,ops per thread,throughput,bandwith,insert avg,insert lat P50,insert P90,insert P99,insert P999,comp avg,comp p50,comp p90,comp p99,comp p999" > "$csv_file"
+    echo "compactor,node_id,thread,ops per thread,throughput,bandwith,insert avg,insert lat P50,insert P90,insert P99,comp avg,comp p50,comp p90" > "$csv_file"
 fi
 echo "$csv_row" >> "$csv_file"
 

@@ -1,42 +1,62 @@
 #!/bin/bash
 
-# 检查是否提供了文件名参数
-if [ $# -ne 1 ]; then
-    echo "使用方法: $0 <filename>"
-    echo "示例: $0 test 将获取所有test*.csv文件"
+# 检查参数数量（至少需要节点ID）
+if [ $# -lt 1 ]; then
+    echo "使用方法: $(basename "$0") <本节点数字ID> [文件名前缀]"
+    echo "示例1: $0 3 test    # 仅收集 test*.csv 文件"
+    echo "示例2: $0 3         # 收集所有 *.csv 文件"
     exit 1
 fi
 
-filename="$1"
+node_id="$1"       # 本节点数字ID（如 3）
+filename="${2:-}"  # 文件名前缀（可选）
+base_path="~/louzy/LaCoLSM"  # 远程文件基础路径
 
-# 从skv-node1复制CSV文件
-echo "从skv-node1获取CSV..."
-scp "skv-node1:~/louzy/LaCoLSM/${filename}*.csv" ../data/data-node1/ 2>/dev/null || echo "提示: skv-node1无${filename}*.csv文件"
+# 动态生成文件匹配模式
+if [ -z "$filename" ]; then
+    file_pattern="*.csv"    # 无文件名参数时匹配所有CSV
+else
+    file_pattern="${filename}*.csv"  # 有参数时匹配指定前缀
+fi
 
-# 从skv-node2复制CSV文件
-echo "从skv-node2获取CSV..."
-scp "skv-node2:~/louzy/LaCoLSM/${filename}*.csv" ../data/data-node2/ 2>/dev/null || echo "提示: skv-node2无${filename}*.csv文件"
+# 验证节点ID是否为1-7的整数
+if ! [[ "$node_id" =~ ^[1-7]$ ]]; then
+    echo "错误: 节点ID必须是1-7的整数"
+    exit 1
+fi
 
-# 创建data-node3目录并复制.csv文件
-echo "处理data-node3目录..."
-cp "../${filename}*.csv" ../data/data-node3/ 2>/dev/null || echo "提示: 未找到${filename}*.csv文件"
+# 主循环：遍历所有节点（1-7）
+for node_num in {1..7}; do
+    node="skv-node${node_num}"
+    local_dir="../data/data-node${node_num}"
+    files_exist=0  # 标记是否存在文件
 
-# 从skv-node4复制CSV文件
-echo "从skv-node4获取CSV..."
-scp "skv-node4:~/louzy/LaCoLSM/${filename}*.csv" ../data/data-node4/ 2>/dev/null || echo "提示: skv-node4无${filename}*.csv文件"
+    # ---- 新增逻辑：检查文件是否存在 ----
+    if [ "$node_num" -eq "$node_id" ]; then  # 本地节点检查
+        # 使用ls检查本地文件（不输出结果）
+        if ls "../${file_pattern}" 1>/dev/null 2>&1; then
+            files_exist=1
+        fi
+    else  # 远程节点检查
+        # 通过SSH检查远程文件
+        if ssh "$node" "ls ${base_path}/${file_pattern} 1>/dev/null 2>&1"; then
+            files_exist=1
+        fi
+    fi
 
-# 从skv-node5复制CSV文件
-echo "从skv-node5获取CSV..."
-scp "skv-node5:~/louzy/LaCoLSM/${filename}*.csv" ../data/data-node5/ 2>/dev/null || echo "提示: skv-node5无${filename}*.csv文件"
-
-# 从skv-node6复制CSV文件
-echo "从skv-node6获取CSV..."
-scp "skv-node6:~/louzy/LaCoLSM/${filename}*.csv" ../data/data-node6/ 2>/dev/null || echo "提示: skv-node6无${filename}*.csv文件"
-
-# 从skv-node7复制CSV文件
-echo "从skv-node7获取CSV..."
-scp "skv-node7:~/louzy/LaCoLSM/${filename}*.csv" ../data/data-node7/ 2>/dev/null || echo "提示: skv-node7无${filename}*.csv文件"
+    # ---- 根据文件存在性决定操作 ----
+    if [ "$files_exist" -eq 1 ]; then
+        mkdir -p "$local_dir"  # 存在文件时才创建目录
+        echo "处理节点 ${node}（存在文件）..."
+        
+        if [ "$node_num" -eq "$node_id" ]; then
+            cp "../${file_pattern}" "$local_dir/" 2>/dev/null
+        else
+            scp "${node}:${base_path}/${file_pattern}" "$local_dir/" 2>/dev/null
+        fi
+    else
+        echo "跳过节点 ${node}（无 ${file_pattern} 文件）"
+    fi
+done
 
 echo "所有操作已完成！"
-
-#./gather.sh MNuni

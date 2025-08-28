@@ -189,8 +189,8 @@ class DBImpl : public DB{
       int p50 = insert_lat[insert_lat.size()*0.5];
       int p90 = insert_lat[insert_lat.size()*0.9];
       int p99 = insert_lat[insert_lat.size()*0.99];
-      int p999 = insert_lat[insert_lat.size()*0.999];
-      printf("///insert latancy:avg = %d,P50 = %d,P90 = %d,P99 = %d,P999 = %d///\n",avg,p50,p90,p99,p999);
+      //int p999 = insert_lat[insert_lat.size()*0.999];
+      printf("///insert latancy:avg = %d,P50 = %d,P90 = %d,P99 = %d///\n",avg,p50,p90,p99);
     }
     if(!get_lat.empty()){
       std::sort(get_lat.begin(),get_lat.end());
@@ -202,8 +202,8 @@ class DBImpl : public DB{
       int p50 = get_lat[get_lat.size()*0.5];
       int p90 = get_lat[get_lat.size()*0.9];
       int p99 = get_lat[get_lat.size()*0.99];
-      int p999 = get_lat[get_lat.size()*0.999];
-      printf("///get latancy:avg = %d,P50 = %d,P90 = %d,P99 = %d,P999 = %d///\n",avg,p50,p90,p99,p999);
+      //int p999 = get_lat[get_lat.size()*0.999];
+      printf("///get latancy:avg = %d,P50 = %d,P90 = %d,P99 = %d///\n",avg,p50,p90,p99);
     }
     printf("---- End Show OPT Latancy ----\n");
     #endif
@@ -219,8 +219,8 @@ class DBImpl : public DB{
       int p50 = compaction_latancy_all[q_size*0.5];
       int p90 = compaction_latancy_all[q_size*0.9];
       int p99 = compaction_latancy_all[q_size*0.99];
-      int p999 = compaction_latancy_all[q_size*0.999];
-      printf("///compaction latancy:avg = %d,P50 = %d,P90 = %d,P99 = %d,P999 = %d///\n",avg,p50,p90,p99,p999);
+      //int p999 = compaction_latancy_all[q_size*0.999];
+      printf("///compaction latancy:avg = %d,P50 = %d,P90 = %d,P99 = %d///\n",avg,p50,p90,p99);
     }
     printf("---- End Show Compaction Latancy ----\n");
     
