@@ -98,6 +98,8 @@ class DBImpl : public DB{
   int subcompaction_num = 0;
   int distribute_num = 0;
 
+  std::deque<double> compaction_speed;
+  std::deque<int> compaction_speed_sub[5];
   std::deque<int> compaction_latancy_all;
   std::mutex compaction_latancy_all_mtx;
 
@@ -111,6 +113,19 @@ class DBImpl : public DB{
   std::deque<int> get_lat;
 
   bool last_compaction_in_MN = true;
+
+  void compaction_speed_append(uint64_t size,int latancy){
+    std::lock_guard<std::mutex> lock(compaction_latancy_all_mtx);
+    compaction_latancy_all.push_back(latancy);
+    double speed = size/(latancy*1000.0); // B/ms = kB/s = 0.001MB/s
+    if(10 < speed && speed < 100000) compaction_speed.push_back(speed);
+  }
+  void compaction_speed_append2(int sub_case,uint64_t size,int latancy){
+    std::lock_guard<std::mutex> lock(compaction_latancy_all_mtx);
+    compaction_latancy_all.push_back(latancy);
+    double speed = size/(latancy*1000.0); // B/ms = kB/s = 0.001MB/s
+    if(10.0 < speed && speed < 100000.0) compaction_speed_sub[sub_case].push_back(speed);
+  }
 
   void compaction_latancy_append(int value){
     std::lock_guard<std::mutex> lock(compaction_latancy_all_mtx);
@@ -161,7 +176,7 @@ class DBImpl : public DB{
     #if NEARDATACOMPACTION == 2
     printf("///Compactor is 2///\n");
     printf("---- Show Compaction Time ----\n");
-    printf("Local = %d\n",compaction_time_local);
+    printf("Compaction Time: Local = %d\n",compaction_time_local);
     printf("In MN:\n");
     for(int i=0;i<10;i+=2){
       if(compaction_time_in_memory[i]==0) continue;
@@ -224,7 +239,60 @@ class DBImpl : public DB{
     }
     printf("---- End Show Compaction Latancy ----\n");
     
-
+    // printf("---- Show Compaction Speed ----\n");
+    // if(!compaction_speed.empty()){
+    //   double avg = 0.0;
+    //   int q_size = compaction_speed.size();
+    //   printf("///compaction speed size = %d ///\n",q_size);
+    //   for(auto& item:compaction_speed){
+    //     if(item<10||item>100000) printf("%d?????\n",item);
+    //     avg += item/q_size;
+    //   }
+    //   printf("///compaction speed:avg = %lf MB/s ///\n",avg);
+    // }
+    // printf("---- End Show Compaction Speed ----\n");
+    printf("---- Show Compaction Speed ----\n");
+    if(!compaction_speed_sub[1].empty()){
+      double avg = 0.0;
+      int q_size = compaction_speed_sub[1].size();
+      printf("///compaction speed size = %d ///\n",q_size);
+      for(auto& item:compaction_speed_sub[1]){
+        if(item<10||item>100000) printf("%d?????\n",item);
+        avg += item/q_size;
+      }
+      printf("///compaction speed case1:avg = %lf MB/s ///\n",avg);
+    }
+    if(!compaction_speed_sub[2].empty()){
+      double avg = 0.0;
+      int q_size = compaction_speed_sub[2].size();
+      printf("///compaction speed size = %d ///\n",q_size);
+      for(auto& item:compaction_speed_sub[2]){
+        if(item<10||item>100000) printf("%d?????\n",item);
+        avg += item/q_size;
+      }
+      printf("///compaction speed case2:avg = %lf MB/s ///\n",avg);
+    }
+    if(!compaction_speed_sub[3].empty()){
+      double avg = 0.0;
+      int q_size = compaction_speed_sub[3].size();
+      printf("///compaction speed size = %d ///\n",q_size);
+      for(auto& item:compaction_speed_sub[3]){
+        if(item<10||item>100000) printf("%d?????\n",item);
+        avg += item/q_size;
+      }
+      printf("///compaction speed case3:avg = %lf MB/s ///\n",avg);
+    }
+    if(!compaction_speed_sub[4].empty()){
+      double avg = 0.0;
+      int q_size = compaction_speed_sub[4].size();
+      printf("///compaction speed size = %d ///\n",q_size);
+      for(auto& item:compaction_speed_sub[4]){
+        if(item<10||item>100000) printf("%d?????\n",item);
+        avg += item/q_size;
+      }
+      printf("///compaction speed case4:avg = %lf MB/s ///\n",avg);
+    }
+    printf("---- End Show Compaction Speed ----\n");
     #ifdef CHECK_COMPACTION_TIME  
     // for(int i=0;i<=32;i++){
     //   printf("///when less than %d.5 avaliable core, speed %lf MB/s ///\n",i,1000.0*compaction_speed_div[i]/compaction_speed[i]);
@@ -387,6 +455,7 @@ class DBImpl : public DB{
   int CompactionTaskWhereToGo(Compaction* compact);//LZYADD
   int CompactionTaskWhereToGoMod3(Compaction* compact);//LZYADD
   int CompactionTaskWhereToGoPureRemote(Compaction* compact);//LZYADD
+  int CompactionTaskWhereToGoTest(Compaction* compact);//LZYADD
   bool CheckWhetherPushDownorNot(Compaction* compact);
   bool CheckByteaddressableOrNot(Compaction* compact);
   long double RequestRemoteUtilization();

@@ -2,4 +2,4 @@
 cd ../build
 make Server db_bench TimberSaw
 
-./Server 19843 80 0
+taskset -c 40-53 ./Server 19843 80 0

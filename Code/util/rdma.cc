@@ -1080,11 +1080,13 @@ void RDMA_Manager::Client_Set_Up_Resources() {
     while (1){
       std::this_thread::sleep_for(std::chrono::milliseconds(CPU_UTILIZATION_CACULATE_INTERVAL));
       double temp = rpter.getCurrentValue();
-      local_cpu_percent.store(temp);
-      local_uti_append(temp);
+      if(temp > 0.0){//LZYADD
+        local_cpu_percent.store(temp);
+        local_uti_append(temp);
+      }
       //local_compaction_issued.store(false);
       //LZY:不计算心跳就不加新任务？考虑删掉
-//      cac->CheckUtilizaitonOfCache()
+      //cac->CheckUtilizaitonOfCache()
     }
 
   });

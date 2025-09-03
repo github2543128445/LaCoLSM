@@ -2,6 +2,14 @@ import pandas as pd
 import os
 import sys
 
+def mean_ignore_zero(series):
+    """计算排除0值后的平均值"""
+    # 筛选出非0的值并计算平均值
+    non_zero = series[series != 0]
+    if non_zero.empty:
+        return 0  # 如果所有值都是0，返回0
+    return non_zero.mean()
+
 def process_csv(file_path):
     # 读取CSV文件
     try:
@@ -10,13 +18,18 @@ def process_csv(file_path):
         print(f"读取文件失败: {e}")
         return
     
+    # 忽略NO列
+    if 'NO' in df.columns:
+        df = df.drop('NO', axis=1)
+        print("已忽略NO列")
+    
     # 定义分组列和需要计算平均值的列
     group_columns = ['compactor', 'node_id', 'thread', 'ops per thread']
     # 自动识别非分组列作为需要计算平均值的列
     value_columns = [col for col in df.columns if col not in group_columns]
     
-    # 按分组列进行分组，并计算每组的平均值
-    grouped = df.groupby(group_columns, as_index=False)[value_columns].mean()
+    # 按分组列进行分组，并计算每组排除0值后的平均值
+    grouped = df.groupby(group_columns, as_index=False)[value_columns].agg(mean_ignore_zero)
     
     # 将平均值转换为整数
     for col in value_columns:
@@ -52,3 +65,4 @@ if __name__ == "__main__":
     process_csv(file_path)
 
 #用以处理单个文件的平均
+#用法：python avg-single.py <文件路径>

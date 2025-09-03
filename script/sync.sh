@@ -19,6 +19,7 @@ for node in "${nodes[@]}"; do
     echo "正在同步到 skv-node$node..."
     rsync -av \
       --exclude=build/ \
+      --exclude=data-f/ \
       --exclude=data/ \
       --exclude=script/run-MN.sh \
       --exclude=*.csv \

@@ -15,6 +15,19 @@ if [ -f "temp.txt" ]; then
     rm -f temp.txt
 fi
 
+# 新增：处理唯一递增序号
+SEQ_FILE="../sequence.txt"
+# 如果序号文件不存在则初始化
+if [ ! -f "$SEQ_FILE" ]; then
+    echo 1 > "$SEQ_FILE"
+fi
+# 读取当前序号
+NO=$(cat "$SEQ_FILE")
+# 计算下一个序号
+NEXT_NO=$((NO + 1))
+# 更新序号文件
+echo $NEXT_NO > "$SEQ_FILE"
+
 # 定义信号处理函数
 db_bench_pid=""
 handle_sigint() {
@@ -29,7 +42,7 @@ handle_sigint() {
 trap handle_sigint SIGINT
 
 # 运行基准测试
-./db_bench --benchmarks=fillrandom \
+taskset -c 40-61 ./db_bench --benchmarks=fillrandom \
            --threads=$thread \
            --value_size=400 \
            --num=$ops_per_thread \
@@ -68,18 +81,22 @@ comp_p50=$(extract_value 'compaction latancy:.*P50 = \K\d+' 0)
 comp_p90=$(extract_value 'compaction latancy:.*P90 = \K\d+' 0)
 comp_p99=$(extract_value 'compaction latancy:.*P99 = \K\d+' 0)
 comp_p999=$(extract_value 'compaction latancy:.*P999 = \K\d+' 0)
+comp_speed_1=$(extract_value 'compaction speed case1:avg = \K\d+' 0)
+comp_speed_2=$(extract_value 'compaction speed case2:avg = \K\d+' 0)
+comp_speed_3=$(extract_value 'compaction speed case3:avg = \K\d+' 0)
+comp_speed_4=$(extract_value 'compaction speed case4:avg = \K\d+' 0)
 
-# 构建CSV行（Compactor作为第一列）
-csv_row="$compactor,$node_id,$thread,$ops_per_thread,$throughput,$bandwith,$lat_avg,$lat_p50,$lat_p90,$lat_p99,$comp_avg,$comp_p50,$comp_p90"
+# 构建CSV行（新增NO作为第一列）
+csv_row="$NO,$compactor,$node_id,$thread,$ops_per_thread,$throughput,$bandwith,$lat_avg,$lat_p50,$lat_p90,$lat_p99,$comp_avg,$comp_p50,$comp_p90,$comp_speed_1,$comp_speed_2,$comp_speed_3,$comp_speed_4"
 
-# 写入CSV文件（更新标题行）
+# 写入主CSV文件
 csv_file="../temp.csv"
 if [ ! -f "$csv_file" ]; then
-    echo "compactor,node_id,thread,ops per thread,throughput,bandwith,insert avg,insert lat P50,insert P90,insert P99,comp avg,comp p50,comp p90" > "$csv_file"
+    echo "NO,compactor,node_id,thread,ops per thread,throughput,bandwith,insert avg,insert lat P50,insert P90,insert P99,comp avg,comp p50,comp p90,comp speed1,comp speed2,comp speed3,comp speed4" > "$csv_file"
 fi
 echo "$csv_row" >> "$csv_file"
 
-# 修复正则表达式匹配所有节点数据
+# 处理节点利用率数据（添加NO列）
 while IFS= read -r line; do
     if [[ "$line" =~ \/\/\/([^0-9]+)\ Node\ ([0-9]+)\ uti:\ av\ =\ ([0-9.]+),P50\ =\ ([0-9.]+),P90\ =\ ([0-9.]+),P99\ =\ ([0-9.]+),P999\ =\ ([0-9.]+)\/\/\/ ]]; then
         node_id="${BASH_REMATCH[2]}"
@@ -90,9 +107,37 @@ while IFS= read -r line; do
         p999="${BASH_REMATCH[7]}"
         
         csv_file="../node${node_id}_uti.csv"
-        [ ! -f "$csv_file" ] && echo "compactor,node_id,thread,ops per thread,avg,p50,p90,p99,p999" > "$csv_file"
-        echo "$compactor,$node_id,$thread,$ops_per_thread,$av,$p50,$p90,$p99,$p999" >> "$csv_file"
+        [ ! -f "$csv_file" ] && echo "NO,compactor,node_id,thread,ops per thread,avg,p50,p90,p99,p999" > "$csv_file"
+        echo "$NO,$compactor,$node_id,$thread,$ops_per_thread,$av,$p50,$p90,$p99,$p999" >> "$csv_file"
     fi
 done < "temp.txt"
-# 示例
-# ./run-CN.sh 0 16 3000000
+
+# 处理Compaction Time数据（添加NO列）
+compaction_csv="../compaction_time.csv"
+if [ ! -f "$compaction_csv" ]; then
+    echo "NO,compactor,current_node_id,thread,ops_per_thread,type,time" > "$compaction_csv"
+fi
+
+# 提取Local Compaction Time
+local_time=$(grep -oP 'Compaction Time: Local = \K\d+' temp.txt | head -1)
+if [ -n "$local_time" ]; then
+    echo "$NO,$compactor,$node_id,$thread,$ops_per_thread,local,$local_time" >> "$compaction_csv"
+fi
+
+# 提取MN节点的Compaction Time
+while IFS= read -r line; do
+    if [[ "$line" =~ MN\ Compaction\ Time:\ Node\ ([0-9]+)\ =\ ([0-9]+) ]]; then
+        mn_node="${BASH_REMATCH[1]}"
+        mn_time="${BASH_REMATCH[2]}"
+        echo "$NO,$compactor,$node_id,$thread,$ops_per_thread,node $mn_node,$mn_time" >> "$compaction_csv"
+    fi
+done < <(grep 'MN Compaction Time: Node' temp.txt)
+
+# 提取CN节点的Compaction Time
+while IFS= read -r line; do
+    if [[ "$line" =~ CN\ Compaction\ Time:\ Node\ ([0-9]+)\ =\ ([0-9]+) ]]; then
+        cn_node="${BASH_REMATCH[1]}"
+        cn_time="${BASH_REMATCH[2]}"
+        echo "$NO,$compactor,$node_id,$thread,$ops_per_thread,node $cn_node,$cn_time" >> "$compaction_csv"
+    fi
+done < <(grep 'CN Compaction Time: Node' temp.txt)
