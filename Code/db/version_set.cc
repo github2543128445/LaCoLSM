@@ -1888,111 +1888,111 @@ bool VersionSet::PickLevel0FilePlanA(int level, Compaction* c, Version* current_
   }
   return !c->inputs_[0].empty();
 }
-bool VersionSet::PickLevel0FilePlanB(int level, Compaction* c, Version* current_snap){
-  if (current_snap->in_progress[level].size()>0){//LZY:有工作就先处理
-//      assert(current_->levels_[level][0]->UnderCompaction);
-    return false;
-  }
-  size_t l1size = current_snap->levels_[level+1].size();
-  if(l1size == 0) return PickLevel0FilePlanA(level, c,current_snap);
-  size_t rand_index = std::rand()%l1size;
-  InternalKey smallest, largest;
-  auto user_cmp = icmp_.user_comparator();
-  int counter = 0;
-  while(1){
-    std::shared_ptr<RemoteMemTableMetaData> f = current_snap->levels_[level+1][rand_index];
-    if(!f->UnderCompaction){
-      c->inputs_[1].push_back(f);
-      bool badchoice = false;  
-      int newoneoff = 1;
-      while(1){//根据当前的l1,选l0，再根据新加的l0，选l1,直到没有新的加入
-        bool endsearch = false;
-        size_t cur_i0_size = c->inputs_[0].size();
-        size_t cur_i1_size = c->inputs_[1].size();
-        GetRange(c->inputs_[1], &smallest, &largest);
-        if (!c->inputs_[0].empty())  c->inputs_[0].clear();
-        if(current_snap->GetOverlappingInputs(level, &smallest, &largest, &c->inputs_[0])){
-          if(c->inputs_[0].size()==0) return PickLevel0FilePlanA(level, c,current_snap);//无重叠，用老方法
-          if(c->inputs_[0].size()<=cur_i0_size) endsearch=true;
-        }
-        else{//与进行中的任务重叠
-          badchoice = true;
-          break;
-        }
-        if(!endsearch){
-          GetRange(c->inputs_[0], &smallest, &largest);
-          if (!c->inputs_[1].empty())  c->inputs_[1].clear();
-          if(current_snap->GetOverlappingInputs(level+1, &smallest, &largest, &c->inputs_[1])){
-            if(c->inputs_[1].size()<=cur_i1_size) endsearch=true;
-          }
-          else{//与进行中的任务重叠
-            badchoice = true;
-            break;
-          }
-        }
-        int quit_out = false;
-        if(endsearch){//没有新元素进入了
-          if(c->inputs_[1].size()>=2){//达标。（可设定的阈值
-            break;
-          }
-          else if(newoneoff<l1size){  
-            int next_index = rand_index+newoneoff < l1size ? rand_index+newoneoff : rand_index+newoneoff-l1size;
-            while(1){
-              std::shared_ptr<RemoteMemTableMetaData> newone = current_snap->levels_[level+1][next_index];
-              bool alreadyin = false;
-              for(size_t i=0;i<c->inputs_[1].size();i++){
-                std::shared_ptr<RemoteMemTableMetaData> temp = c->inputs_[1][i];
-                if(temp->number == newone->number){
-                  alreadyin==true;
-                  break;
-                }
-              }
-              newoneoff++;
-              if(!alreadyin){
-                c->inputs_[1].push_back(newone);
-                break;
-              }
-              else{
-                next_index = next_index + 1 < l1size ? next_index + 1 : 0;
-                if(next_index == rand_index){
-                  quit_out==true;
-                  break;
-                }
-              }
-            } //找L1的新元素
-          } //about 没达标
-          else{//没达标，且L1没东西可找
-            break;
-          }
-        }//about end search
-        if(quit_out) break;
-      }//直到任务量达标，或者可用的file已全选
-      if(!badchoice){
-        for (auto iter : c->inputs_[0])   iter->UnderCompaction = true;
-        current_snap->in_progress[level].insert(current_snap->in_progress[level].end(),c->inputs_[0].begin(), c->inputs_[0].end());
-        for (auto iter : c->inputs_[1])  iter->UnderCompaction = true;
-        current_snap->in_progress[level+1].insert(current_snap->in_progress[level+1].end(),c->inputs_[1].begin(), c->inputs_[1].end());
+// bool VersionSet::PickLevel0FilePlanB(int level, Compaction* c, Version* current_snap){ //LZYADD 废案，L0总是重叠，精挑细选没有意义
+//   if (current_snap->in_progress[level].size()>0){//LZY:有工作就先处理
+// //      assert(current_->levels_[level][0]->UnderCompaction);
+//     return false;
+//   }
+//   size_t l1size = current_snap->levels_[level+1].size();
+//   if(l1size == 0) return PickLevel0FilePlanA(level, c,current_snap);
+//   size_t rand_index = std::rand()%l1size;
+//   InternalKey smallest, largest;
+//   auto user_cmp = icmp_.user_comparator();
+//   int counter = 0;
+//   while(1){
+//     std::shared_ptr<RemoteMemTableMetaData> f = current_snap->levels_[level+1][rand_index];
+//     if(!f->UnderCompaction){
+//       c->inputs_[1].push_back(f);
+//       bool badchoice = false;  
+//       int newoneoff = 1;
+//       while(1){//根据当前的l1,选l0，再根据新加的l0，选l1,直到没有新的加入
+//         bool endsearch = false;
+//         size_t cur_i0_size = c->inputs_[0].size();
+//         size_t cur_i1_size = c->inputs_[1].size();
+//         GetRange(c->inputs_[1], &smallest, &largest);
+//         if (!c->inputs_[0].empty())  c->inputs_[0].clear();
+//         if(current_snap->GetOverlappingInputs(level, &smallest, &largest, &c->inputs_[0])){
+//           if(c->inputs_[0].size()==0) return PickLevel0FilePlanA(level, c,current_snap);//无重叠，用老方法
+//           if(c->inputs_[0].size()<=cur_i0_size) endsearch=true;
+//         }
+//         else{//与进行中的任务重叠
+//           badchoice = true;
+//           break;
+//         }
+//         if(!endsearch){
+//           GetRange(c->inputs_[0], &smallest, &largest);
+//           if (!c->inputs_[1].empty())  c->inputs_[1].clear();
+//           if(current_snap->GetOverlappingInputs(level+1, &smallest, &largest, &c->inputs_[1])){
+//             if(c->inputs_[1].size()<=cur_i1_size) endsearch=true;
+//           }
+//           else{//与进行中的任务重叠
+//             badchoice = true;
+//             break;
+//           }
+//         }
+//         int quit_out = false;
+//         if(endsearch){//没有新元素进入了
+//           if(c->inputs_[1].size()>=2){//达标。（可设定的阈值
+//             break;
+//           }
+//           else if(newoneoff<l1size){  
+//             int next_index = rand_index+newoneoff < l1size ? rand_index+newoneoff : rand_index+newoneoff-l1size;
+//             while(1){
+//               std::shared_ptr<RemoteMemTableMetaData> newone = current_snap->levels_[level+1][next_index];
+//               bool alreadyin = false;
+//               for(size_t i=0;i<c->inputs_[1].size();i++){
+//                 std::shared_ptr<RemoteMemTableMetaData> temp = c->inputs_[1][i];
+//                 if(temp->number == newone->number){
+//                   alreadyin==true;
+//                   break;
+//                 }
+//               }
+//               newoneoff++;
+//               if(!alreadyin){
+//                 c->inputs_[1].push_back(newone);
+//                 break;
+//               }
+//               else{
+//                 next_index = next_index + 1 < l1size ? next_index + 1 : 0;
+//                 if(next_index == rand_index){
+//                   quit_out==true;
+//                   break;
+//                 }
+//               }
+//             } //找L1的新元素
+//           } //about 没达标
+//           else{//没达标，且L1没东西可找
+//             break;
+//           }
+//         }//about end search
+//         if(quit_out) break;
+//       }//直到任务量达标，或者可用的file已全选
+//       if(!badchoice){
+//         for (auto iter : c->inputs_[0])   iter->UnderCompaction = true;
+//         current_snap->in_progress[level].insert(current_snap->in_progress[level].end(),c->inputs_[0].begin(), c->inputs_[0].end());
+//         for (auto iter : c->inputs_[1])  iter->UnderCompaction = true;
+//         current_snap->in_progress[level+1].insert(current_snap->in_progress[level+1].end(),c->inputs_[1].begin(), c->inputs_[1].end());
 
-        //printf("///level 0 has %d files, choose %d files///\n",current_snap->levels_[0].size(),c->inputs_[0].size());
-        break;     
-      }
-      else{ //f's task under Compaction
-        if (!c->inputs_[0].empty())  c->inputs_[0].clear();
-        if (!c->inputs_[1].empty())  c->inputs_[1].clear();
-      }
-    }
-    else{ //f under Compaction
-      if (!c->inputs_[0].empty())  c->inputs_[0].clear();
-      if (!c->inputs_[1].empty())  c->inputs_[1].clear();
-    }
-    rand_index = rand_index + 1 < l1size ? rand_index + 1 : 0;
+//         //printf("///level 0 has %d files, choose %d files///\n",current_snap->levels_[0].size(),c->inputs_[0].size());
+//         break;     
+//       }
+//       else{ //f's task under Compaction
+//         if (!c->inputs_[0].empty())  c->inputs_[0].clear();
+//         if (!c->inputs_[1].empty())  c->inputs_[1].clear();
+//       }
+//     }
+//     else{ //f under Compaction
+//       if (!c->inputs_[0].empty())  c->inputs_[0].clear();
+//       if (!c->inputs_[1].empty())  c->inputs_[1].clear();
+//     }
+//     rand_index = rand_index + 1 < l1size ? rand_index + 1 : 0;
 
-    if (++counter == l1size){
-      break;//LZY：从一个随机位置开始遍历level 1+，若有UnderCompaction的就清空之前的，否则一点点加
-    } 
-  }
-  return !c->inputs_[0].empty();
-}
+//     if (++counter == l1size){
+//       break;//LZY：从一个随机位置开始遍历level 1+，若有UnderCompaction的就清空之前的，否则一点点加
+//     } 
+//   }
+//   return !c->inputs_[0].empty();
+// }
 bool VersionSet::PickFileToCompact(int level, Compaction* c,  //LZY:得到需要进行Compaction的file放入current_snap->in_progress[]
                                    Version* current_snap) {//level 0全放，level 1+随机选
   //assert(c->inputs_[0].empty());

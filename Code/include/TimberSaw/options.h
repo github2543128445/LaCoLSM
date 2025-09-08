@@ -72,9 +72,9 @@ struct TimberSaw_EXPORT Options {
   int max_background_flushes = 4;// 1-1 setup is 8 M-M setup is 8, fixed shard is also 8
   
   int min_local_compactions = 4;
-  int now_local_compactions = 4;
+  int now_local_compactions = 12;
   int max_local_compactions = 15;
-  int now_remote_compactions = 12;
+  int now_remote_compactions = 4;
   int sum_of_local_and_remote_compactions = 16;// sum_of_local_and_remote_compactions = now_local_compactions + now_remote_compactions
 
   int max_compute_subcompactions = 12; // 1-1 setup is 12; M-M  12 as well
