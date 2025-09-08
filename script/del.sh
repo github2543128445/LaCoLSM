@@ -64,3 +64,12 @@ for node_dir in $node_dirs; do
 done
 
 echo -e "\n清理完成！已删除所有节点中与本地 data 目录同名的 CSV 文件"
+
+# ---- 删除本节点的data文件夹 ----
+local_data_dir="$base_dir"
+if [ -d "$local_data_dir" ]; then
+    echo -e "\n删除本节点data文件夹: $local_data_dir"
+    rm -rf "$local_data_dir"
+else
+    echo -e "\n本节点data文件夹不存在: $local_data_dir"
+fi

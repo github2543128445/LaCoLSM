@@ -42,7 +42,7 @@ handle_sigint() {
 trap handle_sigint SIGINT
 
 # 运行基准测试
-taskset -c 40-61 ./db_bench --benchmarks=fillrandom \
+taskset -c 40-62 ./db_bench --benchmarks=fillrandom \
            --threads=$thread \
            --value_size=400 \
            --num=$ops_per_thread \
