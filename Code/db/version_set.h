@@ -405,6 +405,7 @@ class VersionSet {
   uint64_t PrevLogNumber() const { return prev_log_number_; }
 //  static bool check_compaction_state(std::shared_ptr<RemoteMemTableMetaData> sst);
   bool PickLevel0FilePlanA(int level, Compaction* c, Version* current_snap); //LZYADD Default
+  void PickLevelNFilePlanA(int level, Compaction* c, Version* current_snap); //LZYADD
   //bool PickLevel0FilePlanB(int level, Compaction* c, Version* current_snap); LZYADD废案，无论如何L0总是重叠的，精挑细选没有意义
   bool PickFileToCompact(int level, Compaction* c, Version* current_snap);
   // Pick level and mem_vec for a new compaction.

@@ -65,4 +65,4 @@ if __name__ == "__main__":
     process_csv(file_path)
 
 #用以处理单个文件的平均
-#用法：python3 /home/kvgroup/louzy/LaCoLSM/data-py/avg-single.py  <文件路径>
+#用法：python3 /home/kvgroup/louzy/LaCoLSM/script/avg-single.py <文件路径>

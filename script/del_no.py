@@ -2,19 +2,25 @@ import sys
 import paramiko
 
 def main():
-    # 检查参数数量
-    if len(sys.argv) != 3:
-        print("用法: python delete_csv_rows.py <本节点编号> <目标NO号>")
+    # 检查参数数量，至少需要节点编号和一个目标NO号
+    if len(sys.argv) < 2:
+        print("用法: python delete_csv_rows.py <本节点编号> <目标NO号1> [<目标NO号2> ...]")
         sys.exit(1)
     
     # 获取参数
     current_node = sys.argv[1]
-    target_no = sys.argv[2]
+    target_nos = sys.argv[2:]  # 获取所有目标NO号
     
     # 确保当前节点编号是数字
     if not current_node.isdigit():
         print("错误: 本节点编号必须是数字")
         sys.exit(1)
+    
+    # 确保所有目标NO号都是数字
+    for no in target_nos:
+        if not no.isdigit():
+            print(f"错误: 目标NO号 '{no}' 必须是数字")
+            sys.exit(1)
     
     # 遍历节点1-7
     for node in range(1, 8):
@@ -58,20 +64,24 @@ def main():
                     print(f"文件 {csv_file} 不包含NO列，跳过")
                     continue
                 
-                # 创建临时文件，用于存储处理后的数据
-                temp_file = f"{csv_file}.tmp"
-                
-                # 使用awk删除NO等于目标值的行
-                delete_cmd = f"""awk -F ',' '$1 == "NO" {{print; next}} $1 != "{target_no}"' {csv_file} > {temp_file} && mv {temp_file} {csv_file}"""
-                stdin, stdout, stderr = ssh.exec_command(delete_cmd)
-                exit_status = stdout.channel.recv_exit_status()
-                
-                if exit_status == 0:
-                    print(f"文件 {csv_file} 处理完成")
-                else:
-                    error = stderr.read().decode()
-                    print(f"处理文件 {csv_file} 时出错: {error}")
-                    ssh.exec_command(f"rm -f {temp_file}")
+                # 对每个目标NO号执行删除操作
+                for target_no in target_nos:
+                    print(f"删除文件 {csv_file} 中NO={target_no}的记录")
+                    
+                    # 创建临时文件，用于存储处理后的数据
+                    temp_file = f"{csv_file}.tmp.{target_no}"
+                    
+                    # 使用awk删除NO等于目标值的行
+                    delete_cmd = f"""awk -F ',' '$1 == "NO" {{print; next}} $1 != "{target_no}"' {csv_file} > {temp_file} && mv {temp_file} {csv_file}"""
+                    stdin, stdout, stderr = ssh.exec_command(delete_cmd)
+                    exit_status = stdout.channel.recv_exit_status()
+                    
+                    if exit_status == 0:
+                        print(f"文件 {csv_file} 中NO={target_no}的记录已删除")
+                    else:
+                        error = stderr.read().decode()
+                        print(f"处理文件 {csv_file} 中NO={target_no}时出错: {error}")
+                        ssh.exec_command(f"rm -f {temp_file}")
             
             # 关闭SSH连接
             ssh.close()
@@ -82,7 +92,6 @@ def main():
 if __name__ == "__main__":
     main()
 
-
-#python3 /home/kvgroup/louzy/LaCoLSM/script/del_no.py <本节点编号> <目标NO号>
+#python3 /home/kvgroup/louzy/LaCoLSM/script/del_no.py <本节点编号> <目标NO号1> [<目标NO号2> ...]
 #删除远程节点中NO次测试的信息
-#快速用法：python3 /home/kvgroup/louzy/LaCoLSM/script/del_no.py 3 1
+#快速用法：python3 /home/kvgroup/louzy/LaCoLSM/script/del_no.py 3 1 10 15
