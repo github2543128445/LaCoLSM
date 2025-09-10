@@ -3163,6 +3163,222 @@ int DBImpl::CompactionTaskWhereToGoTestv1(Compaction* compact){//LZYTODO
   return shard_target_node_id; //Use NearDataCompaction
 #endif
 }
+int DBImpl::CompactionTaskWhereToGoTestv3(Compaction* compact){//该版本直接将case3，case4给自己
+#if NEARDATACOMPACTION==2
+  auto rdma_mg = env_->rdma_mg;
+  int aim = 0;
+  int L0_num = compact->num_input_files(0),L1_num = compact->num_input_files(1);
+  printf("CompactionTaskWhereToGoTest:Level = %d, L0_num = %d, L1_num = %d\n", compact->level(), L0_num, L1_num);
+  
+  uint16_t Local_core = rdma_mg->local_compute_core_number;
+  uint16_t RMN_core = rdma_mg->remote_core_number_map.at(shard_target_node_id);
+  
+  std::map<uint8_t,uint16_t> RCN_core;
+  //std::map<uint8_t,double> RCN_utilization;
+  // for(auto i:rdma_mg->server_cpu_percent){
+  //   if(i.first%2==0) continue;
+  //   RCN_utilization[i.first] = i.second->load();
+  // }//时效性，在用的时候再拿
+  for(auto i:rdma_mg->remote_core_number_map){
+    if(i.first%2==0) continue;
+    if(i.first == rdma_mg->node_id) continue;
+    RCN_core[i.first] = i.second;
+  }
+
+  double task_parallelism = L1_num;
+  double Local_Score = 0.0;
+  double RCN_Score = 0.0;
+  double RMN_Score = 0.0;
+  // double Local_v_core = 5 + 2*rdma_mg->server_cpu_percent.size() + //通信
+  //                           options_.max_background_flushes +    //flush
+  //                           options_.sum_of_local_and_remote_compactions + //总Compaction线程
+  //                           options_.max_compute_subcompactions; //总SubCompaction线程
+  
+  // double RMN_v_core = 10 + 2*(RCN_core.size()+1) + //通信
+  //                         options_.max_memory_compactions + //总Compaction线程
+  //                         options_.max_memory_subcompactions; //赋权的SubCompaction线程
+  double Local_v_core = Local_core;
+  double RMN_v_core = RMN_core;
+  double Local_utilization = rdma_mg->local_cpu_percent.load();
+  double RMN_utilization = rdma_mg->server_cpu_percent.at(shard_target_node_id)->load();
+  printf("CompactionTaskWhereToGo : Local_utilization = %f, RMN_utilization = %f\n", Local_utilization, RMN_utilization);
+  if (compact->level() == 0){//Level 0
+    if(options_.usesubcompaction && compact->CanSubCompaction()){ //L0 + Sub
+      //Local + L0 + Sub ↓
+      //Local_v_core = (double)rdma_mg->local_compute_core_number;//简化模型
+      double Local_relative_uti = (Local_core*Local_utilization)/(100.0*Local_v_core);
+      double Local_v_av_core = Local_v_core *
+                                (Local_relative_uti > 1.0 ? 0.000001:(1.0 - Local_relative_uti));
+      double Local_max_achievable_parallel = options_.max_compute_subcompactions < task_parallelism ? options_.max_compute_subcompactions : task_parallelism;
+      double Local_now_achievable_parallel = Local_max_achievable_parallel < Local_v_av_core ? Local_max_achievable_parallel : Local_v_av_core;
+      
+      if(L0_num+L1_num<32) Local_Score = Local_now_achievable_parallel;//小任务
+      else  Local_Score = Local_max_achievable_parallel;//大任务
+      //Local + L0 + Sub ↑
+
+      //RMN + L0 + Sub ↓
+      double RMN_relative_uti = (RMN_core*RMN_utilization)/(100.0*RMN_v_core);
+      double RMN_v_av_core = RMN_v_core *
+                                (RMN_relative_uti > 1.0 ? 0.000001:(1.0 - RMN_relative_uti));
+      double RMN_max_achievable_parallel = options_.max_memory_subcompactions < task_parallelism ? options_.max_memory_subcompactions : task_parallelism;
+      double RMN_now_achievable_parallel = RMN_max_achievable_parallel < RMN_v_av_core ? RMN_max_achievable_parallel : RMN_v_av_core;
+
+      RMN_Score = 2.69 * RMN_now_achievable_parallel;//不分大小任务，因为MN连多个CN，不可能有机会all in           
+      //RMN + L0 + Sub ↑
+
+      printf("Compaction Task Score 1: Local: %f, RMN: %f, RCN: %f\n", Local_Score, RMN_Score, RCN_Score);
+      if(Local_Score > RMN_Score){ //LZYTODO
+        aim = -1;
+      }else{
+        aim = shard_target_node_id;
+      }
+    }else{//L0 no Sub
+      //Local + L0 no Sub ↓
+      //Local_v_core = (double)rdma_mg->local_compute_core_number;//简化模型
+      double Local_relative_uti = (Local_core*Local_utilization)/(100.0*Local_v_core);
+      double Local_v_av_core = Local_v_core *
+                                (Local_relative_uti > 1.0 ? 0.000001:(1.0 - Local_relative_uti));
+      
+      Local_Score = Local_v_av_core;//LZYTODO
+      //Local + L0 no Sub ↑
+
+      //RMN + L0 no Sub ↓
+      double RMN_relative_uti = (RMN_core*RMN_utilization)/(100.0*RMN_v_core);
+      double RMN_v_av_core = RMN_v_core *
+                                (RMN_relative_uti > 1.0 ? 0.000001:(1.0 - RMN_relative_uti));
+      RMN_Score = 1.2 * RMN_v_av_core;
+      //RMN_Score = 58.257*exp(0.3783*RMN_v_av_core);
+      //RMN + L0 no Sub ↑
+
+      //RCN + L0 no Sub ↓
+      int RCN_best_id=-1;
+      for(auto it : RCN_core){
+        double RCN_utilization = rdma_mg->server_cpu_percent[it.first]->load();
+        double RCN_v_core = Local_v_core;
+        double RCN_relative_uti = (it.second*RCN_utilization)/(100.0*RCN_v_core);
+        double RCN_v_av_core = RCN_v_core *
+                                (RCN_relative_uti > 1.0 ? 0.000001:(1.0 - RCN_relative_uti));
+
+        double RCN_temp_Score = 0.85*RCN_v_av_core;//LZYTODO,应该差一些
+        if(RCN_temp_Score > RCN_Score){
+          RCN_best_id = it.first;
+          RCN_Score = RCN_temp_Score;
+        }
+      }
+      //RCN + L0 no Sub ↑
+      printf("Compaction Task Score 2: Local: %f, RMN: %f, RCN: %f\n", Local_Score, RMN_Score, RCN_Score);
+      if(Local_Score > RMN_Score && Local_Score > RCN_Score){ //LZYTODO
+        aim = -1;
+      }else if(RMN_Score > Local_Score && RMN_Score > RCN_Score){
+        aim = shard_target_node_id;
+      }else{
+        aim = RCN_best_id;
+      }
+    }
+  }else{//Level N
+    if(options_.usesubcompaction && compact->CanSubCompaction()){//LN + Sub
+      //Local + LN + Sub ↓
+      //Local_v_core = (double)rdma_mg->local_compute_core_number;//简化模型
+      
+      return -1;
+      // double Local_relative_uti = (Local_core*Local_utilization)/(100.0*Local_v_core);
+      // double Local_v_av_core = Local_v_core *
+      //                           (Local_relative_uti > 1.0 ? 0.000001:(1.0 - Local_relative_uti));
+      // double Local_max_achievable_parallel = options_.max_compute_subcompactions < task_parallelism ? options_.max_compute_subcompactions : task_parallelism;
+      // double Local_now_achievable_parallel = Local_max_achievable_parallel < Local_v_av_core ? Local_max_achievable_parallel : Local_v_av_core;
+      
+      // Local_Score = Local_now_achievable_parallel;
+      // //Local + LN + Sub ↑
+
+      // //RMN + LN + Sub ↓
+      // double RMN_relative_uti = (RMN_core*RMN_utilization)/(100.0*RMN_v_core);
+      // double RMN_v_av_core = RMN_v_core *
+      //                           (RMN_relative_uti > 1.0 ? 0.000001:(1.0 - RMN_relative_uti));
+      // double RMN_max_achievable_parallel = options_.max_memory_subcompactions < task_parallelism ? options_.max_memory_subcompactions : task_parallelism;
+      // double RMN_now_achievable_parallel = RMN_max_achievable_parallel < RMN_v_av_core ? RMN_max_achievable_parallel : RMN_v_av_core;
+
+      // RMN_Score = 1.5 * RMN_now_achievable_parallel;      
+      // //RMN + LN + Sub ↑
+
+      // //RCN + LN + Sub ↓
+      // int RCN_best_id=-1;
+      // for(auto it : RCN_core){
+      //   double RCN_utilization = rdma_mg->server_cpu_percent[it.first]->load();
+      //   double RCN_v_core = Local_v_core;
+      //   double RCN_relative_uti = (it.second*RCN_utilization)/(100.0*RCN_v_core);
+      //   double RCN_v_av_core = RCN_v_core *
+      //                           (RCN_relative_uti > 1.0 ? 0.000001:(1.0 - RCN_relative_uti));
+      //   double RCN_max_achievable_parallel = options_.max_compute_subcompactions < task_parallelism ? options_.max_compute_subcompactions : task_parallelism;
+      //   double RCN_now_achievable_parallel = RCN_max_achievable_parallel < RCN_v_av_core ? RCN_max_achievable_parallel : RCN_v_av_core;
+      //   double RCN_temp_Score = 0.7*RCN_now_achievable_parallel;//LZYTODO,应该差一些
+      //   if(RCN_temp_Score > RCN_Score){
+      //     RCN_best_id = it.first;
+      //     RCN_Score = RCN_temp_Score;
+      //   }
+      // }
+      // //RCN + LN + Sub ↑
+      // printf("Compaction Task Score 3: Local: %f, RMN: %f, RCN: %f\n", Local_Score, RMN_Score, RCN_Score);
+      // if(Local_Score > RMN_Score && Local_Score > RCN_Score){ //LZYTODO
+      //   aim = -1;
+      // }else if(RMN_Score > Local_Score && RMN_Score > RCN_Score){
+      //   aim = shard_target_node_id;
+      // }else{
+      //   aim = RCN_best_id;
+      // }      
+      
+    }else{//LN no Sub
+      //最低优先级，仅根据utilization
+      //Local_v_core = (double)rdma_mg->local_compute_core_number;//简化模型
+      return -1;
+      // double Local_relative_uti = (Local_core*Local_utilization)/(100.0*Local_v_core);
+      // double Local_v_av_core = Local_v_core *
+      //                           (Local_relative_uti > 1.0 ? 0.000001:(1.0 - Local_relative_uti));
+
+      // double RMN_relative_uti = (RMN_core*RMN_utilization)/(100.0*RMN_v_core);
+      // double RMN_v_av_core = RMN_v_core *
+      //                           (RMN_relative_uti > 1.0 ? 0.000001:(1.0 - RMN_relative_uti));
+                              
+      // int RCN_best_id=-1;
+      // double RCN_most_core=0.0;
+      // for(auto it : RCN_core){
+      //   double RCN_utilization = rdma_mg->server_cpu_percent[it.first]->load();
+      //   double RCN_v_core = Local_v_core;
+      //   double RCN_relative_uti = (it.second*RCN_utilization)/(100.0*RCN_v_core);
+      //   double RCN_v_av_core = RCN_v_core *
+      //                           (RCN_relative_uti > 1.0 ? 0.000001:(1.0 - RCN_relative_uti));
+      //   if(RCN_v_av_core > RCN_most_core){
+      //     RCN_best_id = it.first;
+      //     RCN_most_core = RCN_v_av_core;
+      //   }
+      // }
+
+      // if(Local_v_av_core < 1.0 && RMN_v_av_core < 0.5 && RCN_most_core < 0.5){
+      //   usleep(compact->level()*50);
+      //   printf("CompactionTaskWhereToGo : busy!\n");
+      //   return CompactionTaskWhereToGo(compact);
+      // }
+      // printf("Compaction Task Score 4 (FreeCore): Local: %f, RMN: %f, RCN: %f\n", Local_v_av_core, RMN_v_av_core, RCN_most_core);
+      // if(Local_v_av_core > 5.0){
+      //   aim = -1;
+      // }else if(RCN_most_core > 5.0 && RCN_most_core/Local_v_av_core > 2.0) {
+      //   aim = RCN_best_id;
+      // }else if(RMN_v_av_core > 8.0){
+      //   aim = shard_target_node_id;
+      // }else{
+      //   aim = -1;
+      // }
+
+
+    }
+  }
+  printf("CompactionTaskWhereToGo : Answer is %d\n",aim);
+  return aim;
+#elif NEARDATACOMPACTION == 0
+  return -1;
+#else
+  return shard_target_node_id; //Use NearDataCompaction
+#endif
+}
 int DBImpl::CompactionTaskWhereToGoTestv2(Compaction* compact){//该版本直接将case3，case4给自己
 #if NEARDATACOMPACTION==2
   auto rdma_mg = env_->rdma_mg;
@@ -3434,7 +3650,11 @@ void DBImpl::BackgroundCompactionOrDistribute(void *p){
         }
        DEBUG_arg("Trival compaction< level 0 file number is %d\n", c->num_input_files(0));
       } else { //LZY : 需要进行Compaction, 先决定谁去做
-        int worknode = CompactionTaskWhereToGoTestv2(c);
+        auto startwork = std::chrono::high_resolution_clock::now();
+        int worknode = CompactionTaskWhereToGoTestv1(c);
+        auto endwork = std::chrono::high_resolution_clock::now();
+        int distribute_latancy = std::chrono::duration_cast<std::chrono::milliseconds>(endwork - startwork).count();
+        distribute_lat_append(distribute_latancy);
         trigger_compaction_in_level[c->level()]++;
         compaction_num++;
         int compaction_size = c->Total_data_size();

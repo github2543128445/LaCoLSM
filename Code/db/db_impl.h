@@ -112,6 +112,13 @@ class DBImpl : public DB{
   std::mutex get_lat_mtx;
   std::deque<int> get_lat;
 
+  std::deque<int> distribute_lat;
+  std::mutex distribute_lat_mtx;
+  void distribute_lat_append(int value){
+    std::lock_guard<std::mutex> lock(distribute_lat_mtx);
+    distribute_lat.push_back(value);
+  }
+
   bool last_compaction_in_MN = true;
 
   void compaction_speed_append(uint64_t size,int latancy){
@@ -236,6 +243,15 @@ class DBImpl : public DB{
       int p99 = compaction_latancy_all[q_size*0.99];
       //int p999 = compaction_latancy_all[q_size*0.999];
       printf("///compaction latancy:avg = %d,P50 = %d,P90 = %d,P99 = %d///\n",avg,p50,p90,p99);
+    }
+    if(!distribute_lat.empty()){
+      std::sort(distribute_lat.begin(),distribute_lat.end());
+      double avg = 0.0;
+      int q_size = distribute_lat.size();
+      for(auto& item:distribute_lat){
+        avg += ((double)item)/q_size;
+      }
+      printf("///插播一条distribute latancy:avg = %d///\n",avg);
     }
     printf("---- End Show Compaction Latancy ----\n");
     
@@ -457,6 +473,7 @@ class DBImpl : public DB{
   int CompactionTaskWhereToGoPureRemote(Compaction* compact);//LZYADD
   int CompactionTaskWhereToGoTestv1(Compaction* compact);//LZYADD
   int CompactionTaskWhereToGoTestv2(Compaction* compact);//LZYADD
+  int CompactionTaskWhereToGoTestv3(Compaction* compact);//LZYADD
   bool CheckWhetherPushDownorNot(Compaction* compact);
   bool CheckByteaddressableOrNot(Compaction* compact);
   long double RequestRemoteUtilization();
