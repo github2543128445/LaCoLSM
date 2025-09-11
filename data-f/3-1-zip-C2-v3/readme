@@ -1,0 +1,3 @@
+这个版本的 PickLevelNFilePlanv3 每层收集 5-level 个文件
+
+CompactionTaskWhereToGoTestv3 case3自己做，case4分配本地和CN

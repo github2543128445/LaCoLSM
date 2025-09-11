@@ -85,14 +85,14 @@ comp_speed_1=$(extract_value 'compaction speed case1:avg = \K\d+' 0)
 comp_speed_2=$(extract_value 'compaction speed case2:avg = \K\d+' 0)
 comp_speed_3=$(extract_value 'compaction speed case3:avg = \K\d+' 0)
 comp_speed_4=$(extract_value 'compaction speed case4:avg = \K\d+' 0)
-
+dis_cost=$(extract_value 'Distribute cost:avg = \K\d+' 0)
 # 构建CSV行（新增NO作为第一列）
-csv_row="$NO,$compactor,$node_id,$thread,$ops_per_thread,$throughput,$bandwith,$lat_avg,$lat_p50,$lat_p90,$lat_p99,$comp_avg,$comp_p50,$comp_p90,$comp_speed_1,$comp_speed_2,$comp_speed_3,$comp_speed_4"
+csv_row="$NO,$compactor,$node_id,$thread,$ops_per_thread,$throughput,$bandwith,$lat_avg,$lat_p50,$lat_p90,$lat_p99,$dis_cost,$comp_avg,$comp_p50,$comp_p90,$comp_p99,$comp_speed_1,$comp_speed_2,$comp_speed_3,$comp_speed_4"
 
 # 写入主CSV文件
 csv_file="../temp.csv"
 if [ ! -f "$csv_file" ]; then
-    echo "NO,compactor,node_id,thread,ops per thread,throughput,bandwith,insert avg,insert lat P50,insert P90,insert P99,comp avg,comp p50,comp p90,comp speed1,comp speed2,comp speed3,comp speed4" > "$csv_file"
+    echo "NO,compactor,node_id,thread,ops per thread,throughput,bandwith,insert avg,insert lat P50,insert P90,insert P99,dis cost,comp avg,comp p50,comp p90,comp p99,comp speed1,comp speed2,comp speed3,comp speed4" > "$csv_file"
 fi
 echo "$csv_row" >> "$csv_file"
 
