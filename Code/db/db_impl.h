@@ -474,6 +474,7 @@ class DBImpl : public DB{
   int CompactionTaskWhereToGoTestv1(Compaction* compact);//LZYADD
   int CompactionTaskWhereToGoTestv2(Compaction* compact);//LZYADD
   int CompactionTaskWhereToGoTestv3(Compaction* compact);//LZYADD
+  int CompactionTaskWhereToGoTestv4(Compaction* compact);//LZYADD
   bool CheckWhetherPushDownorNot(Compaction* compact);
   bool CheckByteaddressableOrNot(Compaction* compact);
   long double RequestRemoteUtilization();
