@@ -2234,7 +2234,7 @@ bool VersionSet::PickFileToCompact(int level, Compaction* c,  //LZY:得到需要
   if (level==0){
     return PickLevel0FilePlanv0(level,c, current_snap);
   }else {//LZY：非level0层
-    PickLevelNFilePlanv2(level,c, current_snap);
+    PickLevelNFilePlanv3(level,c, current_snap);
   }
   return !c->inputs_[0].empty();
 
