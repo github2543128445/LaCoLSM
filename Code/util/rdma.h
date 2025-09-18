@@ -331,6 +331,7 @@ class RDMA_Manager {
   DBImpl* db_owner;
   std::map<uint8_t,bool> finished_node;
   void Finish_and_Wait(){ //循环发送完成信息, 阻塞等待其他节点完成, 在调用该函数前, benchmark已经跑完,输出了相关信息
+    int i = 0;
     while(finished_node.size()<compute_nodes.size()){
       for (auto iter : compute_nodes) {
         if(iter.first == RDMA_Manager::node_id) continue;
@@ -346,10 +347,13 @@ class RDMA_Manager {
           fprintf(stderr, "failed to poll send for remote memory register\n");
           return ;
         }
-        printf("send benchmark_finish to %d done\n", iter.first);
         finished_node[node_id] = true; //在自己完成前, 应至少发过一次, 别晾着别人
-        printf("now finished %d benchmark, wait for other...\n",finished_node.size());
+        if(i%10==0){
+          printf("send benchmark_finish to %d done\n", iter.first);
+          printf("now finished %d benchmark, wait for other...\n",finished_node.size());
+        } 
       }
+      i++;
       sleep(1);
     }
     printf("All nodes' benchmark finished, exit...\n");

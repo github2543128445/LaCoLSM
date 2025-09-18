@@ -3379,7 +3379,7 @@ int DBImpl::CompactionTaskWhereToGoTestv2(Compaction* compact){//该版本直接
   return shard_target_node_id; //Use NearDataCompaction
 #endif
 }
-int DBImpl::CompactionTaskWhereToGoTestv3(Compaction* compact){//该版本直接将case3给自己,case4在local和RCN中分配
+int DBImpl::CompactionTaskWhereToGoTestv3(Compaction* compact){//配合PickLevelNFilePlanv3 该版本直接将case3给自己,case4在local和RCN中分配
 #if NEARDATACOMPACTION==2
   auto rdma_mg = env_->rdma_mg;
   int aim = 0;
@@ -3546,7 +3546,7 @@ int DBImpl::CompactionTaskWhereToGoTestv3(Compaction* compact){//该版本直接
   return shard_target_node_id; //Use NearDataCompaction
 #endif
 }
-int DBImpl::CompactionTaskWhereToGoTestv4(Compaction* compact){//LZYTODO
+int DBImpl::CompactionTaskWhereToGoTestv4(Compaction* compact){//结合pickv3，根据可用核心分配case3 LZYTODO
 #if NEARDATACOMPACTION==2
   auto rdma_mg = env_->rdma_mg;
   int aim = 0;
@@ -3651,10 +3651,10 @@ int DBImpl::CompactionTaskWhereToGoTestv4(Compaction* compact){//LZYTODO
       //Local + L0 no Sub ↑
 
       //RMN + L0 no Sub ↓
-      double RMN_relative_uti = (RMN_core*RMN_utilization)/(100.0*RMN_v_core);
-      double RMN_v_av_core = RMN_v_core *
-                                (RMN_relative_uti > 1.0 ? 0.000001:(1.0 - RMN_relative_uti));
-      RMN_Score = 1.2 * RMN_v_av_core;
+      // double RMN_relative_uti = (RMN_core*RMN_utilization)/(100.0*RMN_v_core);
+      // double RMN_v_av_core = RMN_v_core *
+      //                           (RMN_relative_uti > 1.0 ? 0.000001:(1.0 - RMN_relative_uti));
+      // RMN_Score = 1.2 * RMN_v_av_core;
       //RMN_Score = 58.257*exp(0.3783*RMN_v_av_core);
       //RMN + L0 no Sub ↑
 
@@ -3667,7 +3667,7 @@ int DBImpl::CompactionTaskWhereToGoTestv4(Compaction* compact){//LZYTODO
         double RCN_v_av_core = RCN_v_core *
                                 (RCN_relative_uti > 1.0 ? 0.000001:(1.0 - RCN_relative_uti));
 
-        double RCN_temp_Score = 0.85*RCN_v_av_core;//LZYTODO,应该差一些
+        double RCN_temp_Score = 0.8*RCN_v_av_core;
         if(RCN_temp_Score > RCN_Score){
           RCN_best_id = it.first;
           RCN_Score = RCN_temp_Score;
@@ -3675,10 +3675,15 @@ int DBImpl::CompactionTaskWhereToGoTestv4(Compaction* compact){//LZYTODO
       }
       //RCN + L0 no Sub ↑
       printf("Compaction Task Score 2: Local: %f, RMN: %f, RCN: %f\n", Local_Score, RMN_Score, RCN_Score);
-      if(Local_Score > RMN_Score && Local_Score > RCN_Score){ //LZYTODO
+      // if(Local_Score > RMN_Score && Local_Score > RCN_Score){ //LZYTODO
+      //   aim = -1;
+      // }else if(RMN_Score > Local_Score && RMN_Score > RCN_Score){
+      //   aim = shard_target_node_id;
+      // }else{
+      //   aim = RCN_best_id;
+      // }
+      if(Local_Score > RCN_Score){ //LZYTODO
         aim = -1;
-      }else if(RMN_Score > Local_Score && RMN_Score > RCN_Score){
-        aim = shard_target_node_id;
       }else{
         aim = RCN_best_id;
       }
@@ -3707,30 +3712,28 @@ int DBImpl::CompactionTaskWhereToGoTestv4(Compaction* compact){//LZYTODO
       //RMN + LN + Sub ↑
 
       //RCN + LN + Sub ↓
-      int RCN_best_id=-1;
-      for(auto it : RCN_core){
-        double RCN_utilization = rdma_mg->server_cpu_percent[it.first]->load();
-        double RCN_v_core = Local_v_core;
-        double RCN_relative_uti = (it.second*RCN_utilization)/(100.0*RCN_v_core);
-        double RCN_v_av_core = RCN_v_core *
-                                (RCN_relative_uti > 1.0 ? 0.000001:(1.0 - RCN_relative_uti));
-        double RCN_max_achievable_parallel = options_.max_compute_subcompactions < task_parallelism ? options_.max_compute_subcompactions : task_parallelism;
-        double RCN_now_achievable_parallel = RCN_max_achievable_parallel < RCN_v_av_core ? RCN_max_achievable_parallel : RCN_v_av_core;
-        double RCN_temp_Score = 0.7*RCN_now_achievable_parallel;//LZYTODO,应该差一些
-        if(RCN_temp_Score > RCN_Score){
-          RCN_best_id = it.first;
-          RCN_Score = RCN_temp_Score;
-        }
-      }
+      // int RCN_best_id=-1;
+      // for(auto it : RCN_core){
+      //   double RCN_utilization = rdma_mg->server_cpu_percent[it.first]->load();
+      //   double RCN_v_core = Local_v_core;
+      //   double RCN_relative_uti = (it.second*RCN_utilization)/(100.0*RCN_v_core);
+      //   double RCN_v_av_core = RCN_v_core *
+      //                           (RCN_relative_uti > 1.0 ? 0.000001:(1.0 - RCN_relative_uti));
+      //   double RCN_max_achievable_parallel = options_.max_compute_subcompactions < task_parallelism ? options_.max_compute_subcompactions : task_parallelism;
+      //   double RCN_now_achievable_parallel = RCN_max_achievable_parallel < RCN_v_av_core ? RCN_max_achievable_parallel : RCN_v_av_core;
+      //   double RCN_temp_Score = 0.7*RCN_now_achievable_parallel;//LZYTODO,应该差一些
+      //   if(RCN_temp_Score > RCN_Score){
+      //     RCN_best_id = it.first;
+      //     RCN_Score = RCN_temp_Score;
+      //   }
+      // }
       //RCN + LN + Sub ↑
       printf("Compaction Task Score 3: Local: %f, RMN: %f, RCN: %f\n", Local_Score, RMN_Score, RCN_Score);
-      if(Local_Score > RMN_Score && Local_Score > RCN_Score){ //LZYTODO
+      if(Local_Score > RMN_Score){
         aim = -1;
-      }else if(RMN_Score > Local_Score && RMN_Score > RCN_Score){
+      }else {
         aim = shard_target_node_id;
-      }else{
-        aim = RCN_best_id;
-      }      
+      }     
       
     }else{//LN no Sub
       //最低优先级，仅根据utilization
@@ -3739,9 +3742,9 @@ int DBImpl::CompactionTaskWhereToGoTestv4(Compaction* compact){//LZYTODO
       double Local_v_av_core = Local_v_core *
                                 (Local_relative_uti > 1.0 ? 0.000001:(1.0 - Local_relative_uti));
 
-      double RMN_relative_uti = (RMN_core*RMN_utilization)/(100.0*RMN_v_core);
-      double RMN_v_av_core = RMN_v_core *
-                                (RMN_relative_uti > 1.0 ? 0.000001:(1.0 - RMN_relative_uti));
+      // double RMN_relative_uti = (RMN_core*RMN_utilization)/(100.0*RMN_v_core);
+      // double RMN_v_av_core = RMN_v_core *
+      //                           (RMN_relative_uti > 1.0 ? 0.000001:(1.0 - RMN_relative_uti));
                               
       int RCN_best_id=-1;
       double RCN_most_core=0.0;
@@ -3757,18 +3760,17 @@ int DBImpl::CompactionTaskWhereToGoTestv4(Compaction* compact){//LZYTODO
         }
       }
 
-      if(Local_v_av_core < 1.0 && RMN_v_av_core < 0.5 && RCN_most_core < 0.5){
+      if(Local_v_av_core < 1.0 && RCN_most_core < 0.5){
         usleep(compact->level()*50);
         printf("CompactionTaskWhereToGo : busy!\n");
         return CompactionTaskWhereToGo(compact);
       }
-      printf("Compaction Task Score 4 (FreeCore): Local: %f, RMN: %f, RCN: %f\n", Local_v_av_core, RMN_v_av_core, RCN_most_core);
+      //printf("Compaction Task Score 4 (FreeCore): Local: %f, RMN: %f, RCN: %f\n", Local_v_av_core, RMN_v_av_core, RCN_most_core);
+      printf("Compaction Task Score 4 (FreeCore): Local: %f, RCN: %f\n", Local_v_av_core, RCN_most_core);
       if(Local_v_av_core > 5.0){
         aim = -1;
       }else if(RCN_most_core > 5.0 && RCN_most_core/Local_v_av_core > 2.0) {
         aim = RCN_best_id;
-      }else if(RMN_v_av_core > 8.0){
-        aim = shard_target_node_id;
       }else{
         aim = -1;
       }
@@ -3781,6 +3783,195 @@ int DBImpl::CompactionTaskWhereToGoTestv4(Compaction* compact){//LZYTODO
 #else
   return shard_target_node_id; //Use NearDataCompaction
 #endif
+}
+int DBImpl::CompactionTaskWhereToGoTestv5(Compaction* compact){//配合PickLevelNFilePlanv3 TODO
+#if NEARDATACOMPACTION==2
+  auto rdma_mg = env_->rdma_mg;
+  int aim = 0;
+  int L0_num = compact->num_input_files(0),L1_num = compact->num_input_files(1);
+  printf("CompactionTaskWhereToGoTest:Level = %d, L0_num = %d, L1_num = %d\n", compact->level(), L0_num, L1_num);
+  
+  uint16_t Local_core = rdma_mg->local_compute_core_number;
+  uint16_t RMN_core = rdma_mg->remote_core_number_map.at(shard_target_node_id);
+  
+  std::map<uint8_t,uint16_t> RCN_core;
+  //std::map<uint8_t,double> RCN_utilization;
+  // for(auto i:rdma_mg->server_cpu_percent){
+  //   if(i.first%2==0) continue;
+  //   RCN_utilization[i.first] = i.second->load();
+  // }//时效性，在用的时候再拿
+  for(auto i:rdma_mg->remote_core_number_map){
+    if(i.first%2==0) continue;
+    if(i.first == rdma_mg->node_id) continue;
+    RCN_core[i.first] = i.second;
+  }
+
+  double task_parallelism = L1_num;
+  double Local_Score = 0.0;
+  double RCN_Score = 0.0;
+  double RMN_Score = 0.0;
+  // double Local_v_core = 5 + 2*rdma_mg->server_cpu_percent.size() + //通信
+  //                           options_.max_background_flushes +    //flush
+  //                           options_.sum_of_local_and_remote_compactions + //总Compaction线程
+  //                           options_.max_compute_subcompactions; //总SubCompaction线程
+  
+  // double RMN_v_core = 10 + 2*(RCN_core.size()+1) + //通信
+  //                         options_.max_memory_compactions + //总Compaction线程
+  //                         options_.max_memory_subcompactions; //赋权的SubCompaction线程
+  double Local_v_core = Local_core;
+  double RMN_v_core = RMN_core;
+  double Local_utilization = rdma_mg->local_cpu_percent.load();
+  double RMN_utilization = rdma_mg->server_cpu_percent.at(shard_target_node_id)->load();
+  printf("CompactionTaskWhereToGo : Local_utilization = %f, RMN_utilization = %f\n", Local_utilization, RMN_utilization);
+  if (compact->level() == 0){//Level 0
+    if(options_.usesubcompaction && compact->CanSubCompaction()){ //L0 + Sub
+      //Local + L0 + Sub ↓
+      // //Local_v_core = (double)rdma_mg->local_compute_core_number;//简化模型
+      // double Local_relative_uti = (Local_core*Local_utilization)/(100.0*Local_v_core);
+      // double Local_v_av_core = Local_v_core *
+      //                           (Local_relative_uti > 1.0 ? 0.000001:(1.0 - Local_relative_uti));
+      // double Local_max_achievable_parallel = options_.max_compute_subcompactions < task_parallelism ? options_.max_compute_subcompactions : task_parallelism;
+      // double Local_now_achievable_parallel = Local_max_achievable_parallel < Local_v_av_core ? Local_max_achievable_parallel : Local_v_av_core;
+      
+      // if(L0_num+L1_num<32) Local_Score = Local_now_achievable_parallel;//小任务
+      // else  Local_Score = Local_max_achievable_parallel;//大任务
+      // //Local + L0 + Sub ↑
+
+      // //RMN + L0 + Sub ↓
+      // double RMN_relative_uti = (RMN_core*RMN_utilization)/(100.0*RMN_v_core);
+      // double RMN_v_av_core = RMN_v_core *
+      //                           (RMN_relative_uti > 1.0 ? 0.000001:(1.0 - RMN_relative_uti));
+      // double RMN_max_achievable_parallel = options_.max_memory_subcompactions < task_parallelism ? options_.max_memory_subcompactions : task_parallelism;
+      // double RMN_now_achievable_parallel = RMN_max_achievable_parallel < RMN_v_av_core ? RMN_max_achievable_parallel : RMN_v_av_core;
+
+      // RMN_Score = 2.69 * RMN_now_achievable_parallel;//不分大小任务，因为MN连多个CN，不可能有机会all in           
+      // //RMN + L0 + Sub ↑
+
+      // printf("Compaction Task Score 1: Local: %f, RMN: %f, RCN: %f\n", Local_Score, RMN_Score, RCN_Score);
+      // if(Local_Score > RMN_Score){ //LZYTODO
+      //   aim = -1;
+      // }else{
+      //   aim = shard_target_node_id;
+      // }
+      aim = shard_target_node_id;
+    }else{//L0 no Sub
+      //Local + L0 no Sub ↓
+      //Local_v_core = (double)rdma_mg->local_compute_core_number;//简化模型
+      double Local_relative_uti = (Local_core*Local_utilization)/(100.0*Local_v_core);
+      double Local_v_av_core = Local_v_core *
+                                (Local_relative_uti > 1.0 ? 0.000001:(1.0 - Local_relative_uti));
+      
+      Local_Score = Local_v_av_core;//LZYTODO
+      //Local + L0 no Sub ↑
+
+      //RMN + L0 no Sub ↓
+      double RMN_relative_uti = (RMN_core*RMN_utilization)/(100.0*RMN_v_core);
+      double RMN_v_av_core = RMN_v_core *
+                                (RMN_relative_uti > 1.0 ? 0.000001:(1.0 - RMN_relative_uti));
+      RMN_Score = 1.2 * RMN_v_av_core;
+      //RMN_Score = 58.257*exp(0.3783*RMN_v_av_core);
+      //RMN + L0 no Sub ↑
+
+      ////RCN + L0 no Sub ↓
+      // int RCN_best_id=-1;
+      // for(auto it : RCN_core){
+      //   double RCN_utilization = rdma_mg->server_cpu_percent[it.first]->load();
+      //   double RCN_v_core = Local_v_core;
+      //   double RCN_relative_uti = (it.second*RCN_utilization)/(100.0*RCN_v_core);
+      //   double RCN_v_av_core = RCN_v_core *
+      //                           (RCN_relative_uti > 1.0 ? 0.000001:(1.0 - RCN_relative_uti));
+
+      //   double RCN_temp_Score = 0.85*RCN_v_av_core;//LZYTODO,应该差一些
+      //   if(RCN_temp_Score > RCN_Score){
+      //     RCN_best_id = it.first;
+      //     RCN_Score = RCN_temp_Score;
+      //   }
+      // }
+      ////RCN + L0 no Sub ↑
+      // printf("Compaction Task Score 2: Local: %f, RMN: %f, RCN: %f\n", Local_Score, RMN_Score, RCN_Score);
+      // if(Local_Score > RMN_Score && Local_Score > RCN_Score){ //LZYTODO
+      //   aim = -1;
+      // }else if(RMN_Score > Local_Score && RMN_Score > RCN_Score){
+      //   aim = shard_target_node_id;
+      // }else{
+      //   aim = RCN_best_id;
+      // }
+      printf("Compaction Task Score 2: Local: %f, RMN: %f\n", Local_Score, RMN_Score);
+      if(Local_Score > RMN_Score && Local_Score > RCN_Score){ //LZYTODO
+        aim = -1;
+      }else{
+        aim = shard_target_node_id;
+      }
+    }
+  }else{//Level N
+    if(options_.usesubcompaction && compact->CanSubCompaction()){//LN + Sub
+      //Local + LN + Sub ↓
+      //Local_v_core = (double)rdma_mg->local_compute_core_number;//简化模型
+      double Local_relative_uti = (Local_core*Local_utilization)/(100.0*Local_v_core);
+      double Local_v_av_core = Local_v_core *
+                                (Local_relative_uti > 1.0 ? 0.000001:(1.0 - Local_relative_uti));
+      printf("Compaction Task Score 3: Local av core: %f\n", Local_v_av_core);
+      return -1;
+    }else{//LN no Sub
+      //最低优先级，仅根据utilization
+      //Local_v_core = (double)rdma_mg->local_compute_core_number;//简化模型
+      //return -1;
+      double Local_relative_uti = (Local_core*Local_utilization)/(100.0*Local_v_core);
+      double Local_v_av_core = Local_v_core *
+                                (Local_relative_uti > 1.0 ? 0.000001:(1.0 - Local_relative_uti));
+                           
+      int RCN_best_id=-1;
+      double RCN_most_core=0.0;
+      for(auto it : RCN_core){
+        double RCN_utilization = rdma_mg->server_cpu_percent[it.first]->load();
+        double RCN_v_core = Local_v_core;
+        double RCN_relative_uti = (it.second*RCN_utilization)/(100.0*RCN_v_core);
+        double RCN_v_av_core = RCN_v_core *
+                                (RCN_relative_uti > 1.0 ? 0.000001:(1.0 - RCN_relative_uti));
+        if(RCN_v_av_core > RCN_most_core){
+          RCN_best_id = it.first;
+          RCN_most_core = RCN_v_av_core;
+        }
+      }
+
+      if(Local_v_av_core < 1.0 && RCN_most_core < 1.0){
+        usleep(compact->level()*50);
+        printf("CompactionTaskWhereToGo : busy!\n");
+        return CompactionTaskWhereToGo(compact);
+      }
+      printf("Compaction Task Score 4 (FreeCore): Local: %f, RCN: %f\n", Local_v_av_core, RCN_most_core);
+      if(Local_v_av_core > 6.0){
+        aim = -1;
+      }else if(RCN_most_core > 4.0 && RCN_most_core/Local_v_av_core > 1.5) {
+        aim = RCN_best_id;
+      }else{
+        aim = -1;
+      }
+
+    }
+  }
+  printf("CompactionTaskWhereToGo : Answer is %d\n",aim);
+  return aim;
+#elif NEARDATACOMPACTION == 0
+  return -1;
+#else
+  return shard_target_node_id; //Use NearDataCompaction
+#endif
+}
+int DBImpl::WhatCase(Compaction* compact){
+  if (compact->level() == 0){//Level 0
+    if(options_.usesubcompaction && compact->CanSubCompaction()){ //L0 + Sub
+      return 0;
+    }else{//L0 no Sub
+      return 1;
+    }
+  }else{//Level N
+    if(options_.usesubcompaction && compact->CanSubCompaction()){//LN + Sub
+      return 2;
+    }else{//LN no Sub
+      return 3;
+    }
+  }
 }
 void DBImpl::BackgroundCompactionOrDistribute(void *p){
   if (shutting_down_.load(std::memory_order_acquire)) {
@@ -3838,7 +4029,7 @@ void DBImpl::BackgroundCompactionOrDistribute(void *p){
        DEBUG_arg("Trival compaction< level 0 file number is %d\n", c->num_input_files(0));
       } else { //LZY : 需要进行Compaction, 先决定谁去做
         auto startwork = std::chrono::high_resolution_clock::now();
-        int worknode = CompactionTaskWhereToGoPureRemote(c);
+        int worknode = CompactionTaskWhereToGoTestv3(c);
         auto endwork = std::chrono::high_resolution_clock::now();
         int distribute_latancy = std::chrono::duration_cast<std::chrono::microseconds>(endwork - startwork).count();
         distribute_lat_append(distribute_latancy);
@@ -3870,14 +4061,14 @@ void DBImpl::BackgroundCompactionOrDistribute(void *p){
           auto stop = std::chrono::high_resolution_clock::now();
           int compaction_latancy = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start).count();
           compaction_speed_append2(sub_level,compaction_size,compaction_latancy);
-          #ifdef CHECK_COMPACTION_TIME
-          auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
-          uint64_t total_size = 0;
-          total_size = c->Total_data_size();
-          total_size = total_size/1024/1024; // in MB
-          duration_time_in_level[c->level()] += duration.count()/1000;
-          compaction_size_in_level[c->level()] += total_size;
-          #endif
+          // #ifdef CHECK_COMPACTION_TIME
+          // auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
+          // uint64_t total_size = 0;
+          // total_size = c->Total_data_size();
+          // total_size = total_size/1024/1024; // in MB
+          // duration_time_in_level[c->level()] += duration.count()/1000;
+          // compaction_size_in_level[c->level()] += total_size;
+          // #endif
 
         } else if(worknode%2 == 0){//MN做
           compaction_time_in_memory[worknode]++;
@@ -3887,14 +4078,14 @@ void DBImpl::BackgroundCompactionOrDistribute(void *p){
           int compaction_latancy = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start).count();
           compaction_speed_append2(sub_level,compaction_size,compaction_latancy);
 
-          #ifdef CHECK_COMPACTION_TIME
-          auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
-          uint64_t total_size = 0;
-          total_size = c->Total_data_size();
-          total_size = total_size/1024/1024; // in MB
-          duration_time_in_level[c->level()] += duration.count()/1000;
-          compaction_size_in_level[c->level()] += total_size;
-          #endif
+          // #ifdef CHECK_COMPACTION_TIME
+          // auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
+          // uint64_t total_size = 0;
+          // total_size = c->Total_data_size();
+          // total_size = total_size/1024/1024; // in MB
+          // duration_time_in_level[c->level()] += duration.count()/1000;
+          // compaction_size_in_level[c->level()] += total_size;
+          // #endif
         } else{ //其他CN做
           compaction_time_in_compute[worknode]++;
           auto start = std::chrono::high_resolution_clock::now();
@@ -4316,6 +4507,7 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {//LZY:准备�
 Status DBImpl::FinishCompactionOutputFile(SubcompactionState* compact,
                                           Iterator* input) {
   //LZY:写入实际数据到远程，并将元数据写入compact->output(),删除当前builder
+  auto start_time = std::chrono::steady_clock::now();
   assert(compact != nullptr);
 //  assert(compact->outfile != nullptr);
   assert(compact->builder != nullptr);
@@ -4372,6 +4564,9 @@ Status DBImpl::FinishCompactionOutputFile(SubcompactionState* compact,
           (unsigned long long)current_bytes);
     }
   }
+  auto end_time = std::chrono::steady_clock::now();
+  auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
+  printf("FinishCompactionOutputFile time cost: %lld us\n", (unsigned long long)duration.count());
   return s;
 }
                                           
@@ -5008,11 +5203,11 @@ void DBImpl::RemoteDataCompaction(Compaction* c,uint8_t target_node_id){//参考
   for(const auto& iter : *edit.GetDeletedFiles()){
     //printf("RemoteDataCompaction: table_cache addr = %p\n", table_cache_);
     table_cache_->Evict(std::get<1>(iter), std::get<2>(iter));//level，id
-    printf("RemoteDataCompaction: Install result, delete table cache Level is %d, Num is %lu, belong_node_id is %lu\n",std::get<0>(iter),std::get<1>(iter),std::get<2>(iter));
+    //printf("RemoteDataCompaction: Install result, delete table cache Level is %d, Num is %lu, belong_node_id is %lu\n",std::get<0>(iter),std::get<1>(iter),std::get<2>(iter));
   }
   for(const auto& iter : *edit.GetNewFiles()){//将所有新文件装入cache
     Iterator* it = versions_->table_cache_->NewIterator(ReadOptions(), iter.second);
-    printf("RemoteDataCompaction: Install result, Add table cache Level is %d, Num is %lu, belong_node_id is %lu\n",iter.second->level,iter.second->number,iter.second->belong_node_id);
+    //printf("RemoteDataCompaction: Install result, Add table cache Level is %d, Num is %lu, belong_node_id is %lu\n",iter.second->level,iter.second->number,iter.second->belong_node_id);
     delete it;
   }
   rdma_mg->Deallocate_Local_RDMA_Slot(send_mr.addr,Message);
@@ -5870,6 +6065,8 @@ void DBImpl::ResetThreadLocalSuperVersions() {
 //}
 Status DBImpl::DoCompactionWorkWithSubcompaction(CompactionState* compact) {  
   Compaction* c = compact->compaction;
+  int cases = WhatCase(c);
+  auto start_time = std::chrono::steady_clock::now();
   c->GenSubcompactionBoundaries();
   auto boundaries = c->GetBoundaries(); //level 1 除了第一个，各文件最小值
   auto sizes = c->GetSizes();//level 1 所有文件的大小
@@ -5922,18 +6119,21 @@ Status DBImpl::DoCompactionWorkWithSubcompaction(CompactionState* compact) {
   const size_t num_threads = compact->sub_compact_states.size();
   assert(num_threads > 0);
   const uint64_t start_micros = env_->NowMicros();
-
+  auto end_time = std::chrono::steady_clock::now();
+  C0_append(std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count(), cases, 0);//分割时间
   // Launch a thread for each of subcompactions 1...num_threads-1
   std::vector<port::Thread> thread_pool;
   thread_pool.reserve(num_threads - 1);
   for (size_t i = 1; i < compact->sub_compact_states.size(); i++) {
-    thread_pool.emplace_back(&DBImpl::ProcessKeyValueCompaction, this,
-                             &compact->sub_compact_states[i]);
+    // thread_pool.emplace_back(&DBImpl::ProcessKeyValueCompaction, this,
+    //                          &compact->sub_compact_states[i]);
+    thread_pool.emplace_back(&DBImpl::ProcessKeyValueCompactionPlusCases, this,
+                             &compact->sub_compact_states[i],cases);
   }
 
   // Always schedule the first subcompaction (whether or not there are also
   // others) in the current thread to be efficient with resources
-  ProcessKeyValueCompaction(&compact->sub_compact_states[0]);
+  ProcessKeyValueCompactionPlusCases(&compact->sub_compact_states[0],cases);
   for (auto& thread : thread_pool) {
     thread.join();
   }
@@ -5964,14 +6164,14 @@ Status DBImpl::DoCompactionWorkWithSubcompaction(CompactionState* compact) {
 
   if (status.ok()) {
     for(const auto& iter : *compact->compaction->edit()->GetDeletedFiles()){
-      printf("DoCompactionWorkWithSubcompaction: table_cache addr = %p\n", table_cache_);
+      //printf("DoCompactionWorkWithSubcompaction: table_cache addr = %p\n", table_cache_);
       table_cache_->Evict(std::get<1>(iter), std::get<2>(iter));
-      printf("DoCompactionWorkWithSubcompaction: Install result, delete table cache Num is %lu, belong_node_id is %lu\n",std::get<1>(iter),std::get<2>(iter));
+      //printf("DoCompactionWorkWithSubcompaction: Install result, delete table cache Num is %lu, belong_node_id is %lu\n",std::get<1>(iter),std::get<2>(iter));
     }
     for(const auto& iter : *compact->compaction->edit()->GetNewFiles()){
       Iterator* it = versions_->table_cache_->NewIterator(ReadOptions(), iter.second);
       status = it->status();
-      printf("DoCompactionWorkWithSubcompaction: Install result, Add table cache Num is %lu, belong_node_id is %lu\n",iter.second->number,iter.second->belong_node_id);
+      //printf("DoCompactionWorkWithSubcompaction: Install result, Add table cache Num is %lu, belong_node_id is %lu\n",iter.second->number,iter.second->belong_node_id);
       delete it;
     }
     // Verify that the table is usable
@@ -6255,8 +6455,190 @@ void DBImpl::ProcessKeyValueCompaction(SubcompactionState* sub_compact){
   delete input;
 //  input = nullptr;
 }
+void DBImpl::ProcessKeyValueCompactionPlusCases(SubcompactionState* sub_compact,int cases){
+  assert(sub_compact->builder == nullptr);
+  //Start and End are userkeys.
+  Slice* start = sub_compact->start;
+  Slice* end = sub_compact->end;
+  if (snapshots_.empty()) {
+    sub_compact->smallest_snapshot = versions_->LastSequence();
+  } else {
+    sub_compact->smallest_snapshot = snapshots_.oldest()->sequence_number();
+  }
+  auto start_time = std::chrono::steady_clock::now();
+  Iterator* input = versions_->MakeInputIterator(sub_compact->compaction);
+  auto end_time = std::chrono::steady_clock::now();
+  C0_append(std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count(), cases, 1);//读取耗时
+  // Release mutex while we're actually doing the compaction work
+//  undefine_mutex.Unlock();
+  unsigned long long sum_S3 = 0;
+  start_time = std::chrono::steady_clock::now();
+  if (start != nullptr) {
+    InternalKey start_internal(*start, kMaxSequenceNumber, kValueTypeForSeek);
+    //tofix(ruihong): too much data copy for the seek here!
+    input->Seek(start_internal.Encode());
+    // The sstable range is (start, end]
+    input->Next();
+  } else {
+    input->SeekToFirst();
+  }
+#ifndef NDEBUG
+  int Not_drop_counter = 0;
+  int number_of_key = 0;
+#endif
+  Status status;
+  // TODO: try to create two ikey for parsed key, they can in turn represent the current user key
+  //  and former one, which can save the data copy overhead.
+  ParsedInternalKey ikey;
+  std::string current_user_key;
+  bool has_current_user_key = false;
+  SequenceNumber last_sequence_for_key = kMaxSequenceNumber;
+  Slice key;
+  assert(input->Valid());
+#ifndef NDEBUG
+  printf("first key is %s", input->key().ToString().c_str());
+#endif
+  while (input->Valid() && !shutting_down_.load(std::memory_order_acquire)) {
+    key = input->key();
+
+//    assert(key.data()[0] == '0');
+    //We do not need to check whether the output file have too much overlap with level n + 2.
+    // If there is a lot of overlap subcompaction can be triggered.
+    //sub_compact->compaction->ShouldStopBefore(key) &&
+//    if (
+//        sub_compact->builder != nullptr) {
+//
+//      sub_compact->current_output()->largest.SetFrom(ikey);
+//      status = FinishCompactionOutputFile(sub_compact, input);
+//      if (!status.ok()) {
+//        break;
+//      }
+//    }
+
+    //TODO: record the largest key as the last ikey, find a more efficient way to record
+    // the last key of SSTable.
+
+    // key merged below!!!
+    // Handle key/value, add to state, etc.
+    bool drop = false;
+    if (!ParseInternalKey(key, &ikey)) {
+      // Do not hide error keys
+      current_user_key.clear();
+      has_current_user_key = false;
+      last_sequence_for_key = kMaxSequenceNumber;
+    } else {
+      if (!has_current_user_key ||
+          user_comparator()->Compare(ikey.user_key, Slice(current_user_key)) !=
+          0) {
+        // First occurrence of this user key
+        current_user_key.assign(ikey.user_key.data(), ikey.user_key.size());
+        has_current_user_key = true;
+        last_sequence_for_key = kMaxSequenceNumber;
+        // this will result in the key not drop, next if will always be false because of
+        // the last_sequence_for_key.
+      }
+
+      if (last_sequence_for_key <= sub_compact->smallest_snapshot) {
+        // Hidden by an newer entry for same user key
+
+        drop = true;  // (A)
+      }
+//      else if (ikey.type == kTypeDeletion &&
+//                 ikey.sequence <= sub_compact->smallest_snapshot &&
+//                 sub_compact->compaction->IsBaseLevelForKey(ikey.user_key)) {
+//        // TOTHINK(0ruihong) :what is this for?
+//        //  Generally delete can only be deleted when there is definitely no file contain the
+//        //  same key in the upper level.
+//        // For this user key:
+//        // (1) there is no data in higher levels
+//        // (2) data in lower levels will have larger sequence numbers
+//        // (3) data in layers that are being compacted here and have
+//        //     smaller sequence numbers will be dropped in the next
+//        //     few iterations of this loop (by rule (A) above).
+//        // Therefore this deletion marker is obsolete and can be dropped.
+//        drop = true;
+//      }
+
+      last_sequence_for_key = ikey.sequence;
+
+    }
+#ifndef NDEBUG
+    number_of_key++;
+#endif
+    if (!drop) {
+      // Open output file if necessary
+      if (sub_compact->builder == nullptr) {
+        status = OpenCompactionOutputFile(sub_compact);
+        if (!status.ok()) {
+          break;
+        }
+      }
+      if (sub_compact->builder->NumEntries() == 0) {
+        sub_compact->current_output()->smallest.DecodeFrom(key);
+      }
+#ifndef NDEBUG
+      Not_drop_counter++;
+#endif
+      sub_compact->builder->Add(key, input->value());
+//      assert(key.data()[0] == '0');
+      // Close output file if it is big enough
+      if (sub_compact->builder->FileSize() >=
+          sub_compact->compaction->MaxOutputFileSize()) {
+//        assert(key.data()[0] == '0');
+        sub_compact->current_output()->largest.DecodeFrom(key);
+        auto S3_start_time = std::chrono::steady_clock::now();
+        status = FinishCompactionOutputFile(sub_compact, input);
+        auto S3_end_time = std::chrono::steady_clock::now();
+        sum_S3 += std::chrono::duration_cast<std::chrono::microseconds>(S3_end_time - S3_start_time).count();
+        if (!status.ok()) {
+          break;
+        }
+      }
+    }
+    if (end != nullptr &&
+        user_comparator()->Compare(ExtractUserKey(key), *end) >= 0) {
+      break;
+    }
+//    assert(key.data()[0] == '0');
+    input->Next();
+    //NOTE(ruihong): When the level iterator is invalid it will be deleted and then the key will
+    // be invalid also.
+//    assert(key.data()[0] == '0');
+
+  }
+//  reinterpret_cast<TimberSaw::MergingIterator>
+  // You can not call prev here because the iterator is not valid any more
+//  input->Prev();
+//  assert(input->Valid());
+#ifndef NDEBUG
+  printf("For compaction, Total number of key touched is %d, KV left is %d\n", number_of_key,
+         Not_drop_counter);
+#endif
+//  assert(key.data()[0] == '0');
+  if (status.ok() && shutting_down_.load(std::memory_order_acquire)) {
+    status = Status::IOError("Deleting DB during compaction");
+  }
+  if (status.ok() && sub_compact->builder != nullptr) {
+//    assert(key.data()[0] == '0');
+
+    sub_compact->current_output()->largest.DecodeFrom(key);// The SSTable for subcompaction range will be (start, end]
+    auto S3_start_time = std::chrono::steady_clock::now();
+    status = FinishCompactionOutputFile(sub_compact, input);
+    auto S3_end_time = std::chrono::steady_clock::now();
+    sum_S3 += std::chrono::duration_cast<std::chrono::microseconds>(S3_end_time - S3_start_time).count();
+  }
+  if (status.ok()) {
+    status = input->status();
+  }
+  delete input;
+  end_time = std::chrono::steady_clock::now();
+  C0_append(std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count() - sum_S3, cases, 2);//处理耗时
+  C0_append(sum_S3, cases, 3);//写回耗时
+//  input = nullptr;
+}
 Status DBImpl::DoCompactionWork(CompactionState* compact) {
   //LZY:两边还挺不一样的，这是计算节点做compaction
+  int cases = WhatCase(compact->compaction);
   const uint64_t start_micros = env_->NowMicros();
   int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
 
@@ -6273,13 +6655,16 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   } else {
     compact->smallest_snapshot = snapshots_.oldest()->sequence_number();
   }
-
+  auto start_time = std::chrono::steady_clock::now();
   Iterator* input = versions_->MakeInputIterator(compact->compaction); //从compact->compaction里取上下两层的数据
-
+  
   // Release mutex while we're actually doing the compaction work
 //  undefine_mutex.Unlock();
-
   input->SeekToFirst();
+  auto end_time = std::chrono::steady_clock::now();
+  C0_append(std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count(), cases, 1);//读取耗时
+  unsigned long long S3_cost = 0;
+  start_time = std::chrono::steady_clock::now();
 #ifndef NDEBUG
   int Not_drop_counter = 0;
   int number_of_key = 0;
@@ -6378,7 +6763,10 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         compact->current_output()->largest.DecodeFrom(key);
         assert(*compact->current_output()->largest.user_key().data() == 0);
         //LZY:写入实际数据到远程，并将元数据写入compact->output(),删除当前builder,但是元数据并未真实产生
+        auto S3_start_time = std::chrono::steady_clock::now();
         status = FinishCompactionOutputFile(compact, input);
+        auto S3_end_time = std::chrono::steady_clock::now();
+        S3_cost += std::chrono::duration_cast<std::chrono::microseconds>(S3_end_time - S3_start_time).count();
         if (!status.ok()) {
           break;
         }
@@ -6419,7 +6807,10 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
     // The assertion always failed below. need to understand why.
     assert(*compact->current_output()->largest.user_key().data() == 0);
     //LZY:写入实际数据到远程，并将元数据写入compact->output(),删除当前builder
+    auto S3_start_time = std::chrono::steady_clock::now();
     status = FinishCompactionOutputFile(compact, input);
+    auto S3_end_time = std::chrono::steady_clock::now();
+    S3_cost += std::chrono::duration_cast<std::chrono::microseconds>(S3_end_time - S3_start_time).count();
   }
   if (status.ok()) {
     status = input->status();
@@ -6450,15 +6841,15 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
 
   if (status.ok()) {
     for(const auto& iter : *compact->compaction->edit()->GetDeletedFiles()){
-      printf("DoCompactionWork: table_cache addr = %p\n", table_cache_);
+      //printf("DoCompactionWork: table_cache addr = %p\n", table_cache_);
       table_cache_->TableCache::Evict(std::get<1>(iter), std::get<2>(iter));
-      printf("DoCompactionWork: Install result, delete table cache Num is %lu, belong_node_id is %lu\n",std::get<1>(iter),std::get<2>(iter));
+      //printf("DoCompactionWork: Install result, delete table cache Num is %lu, belong_node_id is %lu\n",std::get<1>(iter),std::get<2>(iter));
     }
 //    printf("open compaciton tables1\n");
     for(const auto& iter : *compact->compaction->edit()->GetNewFiles()){
       Iterator* it = versions_->table_cache_->NewIterator(ReadOptions(), iter.second);
       status = it->status();
-      printf("DoCompactionWork: Install result, Add table cache Num is %lu, belong_node_id is %lu\n",iter.second->number,iter.second->belong_node_id);
+      //printf("DoCompactionWork: Install result, Add table cache Num is %lu, belong_node_id is %lu\n",iter.second->number,iter.second->belong_node_id);
       delete it;
     }
     // Verify that the table is usable
@@ -6479,7 +6870,9 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   VersionSet::LevelSummaryStorage tmp;
   Log(options_.info_log, "compacted to: %s", versions_->LevelSummary(&tmp));
   // NOtifying all the waiting threads.
-
+  end_time = std::chrono::steady_clock::now();
+  C0_append(std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count() - S3_cost, cases, 2);//处理耗时
+  C0_append(S3_cost, cases, 3);//写回耗时
   return status;
 }
 

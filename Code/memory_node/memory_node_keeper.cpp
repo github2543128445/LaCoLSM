@@ -1532,7 +1532,8 @@ Status Memory_Node_Keeper::InstallCompactionResultsToComputePreparation(
         Arg_for_handler* argforhandler = new Arg_for_handler{.request=receive_msg_buf,
                            .client_ip = client_ip,.target_node_id = compute_node_id};
         BGThreadMetadata* thread_pool_args = new BGThreadMetadata{.db = this, .func_args = argforhandler};
-        Compactor_pool_.Schedule(&Memory_Node_Keeper::RPC_Compaction_Dispatch, thread_pool_args); //将RPC_Compaction_Dispatch函数加入Compactor的线程池
+        //printf("Schedule CompactionThreadPool len : %d\n", Compactor_pool_.queue_len_.load());
+        Compactor_pool_.Schedule(&Memory_Node_Keeper::RPC_Compaction_Dispatch, thread_pool_args); //将RPC_Compaction_Dispatch函数加入Compactor的线程池  
 //        sst_compaction_handler(nullptr);
       } else if (receive_msg_buf->command == create_cpu_refresher) {//never use
         // receive a new remote cpu keeper request from compute node

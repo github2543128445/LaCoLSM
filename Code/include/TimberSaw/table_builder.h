@@ -66,7 +66,7 @@ class TimberSaw_EXPORT TableBuilder {
   // Finish building the table.  Stops using the file passed to the
   // constructor after this function returns.
   // REQUIRES: Finish(), Abandon() have not been called
-  virtual Status Finish()=0;
+  virtual Status Finish()=0;//TableBuilder_BACS::Finish()
 
   // Indicate that the contents of this builder should be abandoned.  Stops
   // using the file passed to the constructor after this function returns.

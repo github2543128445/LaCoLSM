@@ -114,6 +114,14 @@ class DBImpl : public DB{
 
   std::deque<int> distribute_lat;
   std::mutex distribute_lat_mtx;
+
+  std::deque<int> C0_s[4][4];
+  std::mutex C0_s_mutex;
+  void C0_append(int value,int cases,int stage){
+    std::lock_guard<std::mutex> lock(C0_s_mutex);
+    C0_s[cases][stage].push_back(value);
+  }
+
   void distribute_lat_append(int value){
     std::lock_guard<std::mutex> lock(distribute_lat_mtx);
     distribute_lat.push_back(value);
@@ -176,6 +184,28 @@ class DBImpl : public DB{
     }
     #if NEARDATACOMPACTION == 0
     printf("///Compactor is 0///\n");
+        printf("---- Show C0 Compaction Cost ----\n");
+    for(int i=0;i<4;i++){
+      for(int j=0;j<4;j++){
+        printf("For Case %d Stage %d: ",i+1,j+1);
+        double avg=0.0,p1=0.0,p5=0.0,p10=0.0,p50=0.0,p90=0.0,p95=0.0,p99=0.0;
+        int q_size = C0_s[i][j].size();
+        for(auto& item:C0_s[i][j]){
+          avg += ((double)item)/q_size;
+        }
+        if(q_size > 0){
+          std::sort(C0_s[i][j].begin(),C0_s[i][j].end());
+          p1 = C0_s[i][j][q_size*0.01];
+          p5 = C0_s[i][j][q_size*0.05];
+          p10 = C0_s[i][j][q_size*0.1];
+          p50 = C0_s[i][j][q_size*0.5];
+          p90 = C0_s[i][j][q_size*0.9];
+          p95 = C0_s[i][j][q_size*0.95];
+          p99 = C0_s[i][j][q_size*0.99];
+        }
+        printf("avg = %d,P1 = %d,P5 = %d,P10 = %d,P50 = %d,P90 = %d,P95 = %d,P99 = %d ///\n",(int)avg,(int)p1,(int)p5,(int)p10,(int)p50,(int)p90,(int)p95,(int)p99);
+      }
+    }
     #endif
     #if NEARDATACOMPACTION == 1
     printf("///Compactor is 1///\n");
@@ -473,8 +503,9 @@ class DBImpl : public DB{
   int CompactionTaskWhereToGoPureRemote(Compaction* compact);//LZYADD
   int CompactionTaskWhereToGoTestv1(Compaction* compact);//LZYADD
   int CompactionTaskWhereToGoTestv2(Compaction* compact);//LZYADD
-  int CompactionTaskWhereToGoTestv3(Compaction* compact);//LZYADD
-  int CompactionTaskWhereToGoTestv4(Compaction* compact);//LZYADD
+  int CompactionTaskWhereToGoTestv3(Compaction* compact);//LZYADD 当前最优
+  int CompactionTaskWhereToGoTestv4(Compaction* compact);//LZYADD 失败
+  int CompactionTaskWhereToGoTestv5(Compaction* compact);//LZYADD
   bool CheckWhetherPushDownorNot(Compaction* compact);
   bool CheckByteaddressableOrNot(Compaction* compact);
   long double RequestRemoteUtilization();
@@ -484,6 +515,8 @@ class DBImpl : public DB{
   Status DoCompactionWork(CompactionState* compact)
       EXCLUSIVE_LOCKS_REQUIRED(undefine_mutex);
   void ProcessKeyValueCompaction(SubcompactionState* sub_compact);
+  void ProcessKeyValueCompactionPlusCases(SubcompactionState* sub_compact,int cases);//LZYADD
+  int WhatCase(Compaction* compact);//LZYADD
   void RemoteProcessKeyValueCompaction(SubcompactionState* sub_compact,uint8_t target_node_id,std::atomic<uint64_t>* file_num);//LZYADD
   //TODO: We could probably use corotine to do the compaction because the compaction for
   // large key value size can have large cpu stall time for memroy copy.

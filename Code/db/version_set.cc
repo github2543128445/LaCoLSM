@@ -1718,20 +1718,20 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
   const int space = (c->level() == 0 ? c->inputs_[0].size() + 1 : 2);
   Iterator** list = new Iterator*[space];
   int num = 0;
-  for (int which = 0; which < 2; which++) {//LZYADD
-    if (!c->inputs_[which].empty()) {
-      const std::vector<std::shared_ptr<RemoteMemTableMetaData>>& files = c->inputs_[which];
-      for (size_t i = 0; i < files.size(); i++) {
-        //printf("MakeInputIterator: files[%d][%d] meta: Level is %d, Num is %lu, Belong_node_id is %lu\n", which, i, files[i]->level, files[i]->number, files[i]->belong_node_id);
-      }
-    }
-  }
+  // for (int which = 0; which < 2; which++) {//LZYADD
+  //   if (!c->inputs_[which].empty()) {
+  //     const std::vector<std::shared_ptr<RemoteMemTableMetaData>>& files = c->inputs_[which];
+  //     for (size_t i = 0; i < files.size(); i++) {
+  //       //printf("MakeInputIterator: files[%d][%d] meta: Level is %d, Num is %lu, Belong_node_id is %lu\n", which, i, files[i]->level, files[i]->number, files[i]->belong_node_id);
+  //     }
+  //   }
+  // }
   for (int which = 0; which < 2; which++) {
     if (!c->inputs_[which].empty()) {
       if (c->level() + which == 0) {
-        const std::vector<std::shared_ptr<RemoteMemTableMetaData>>& files = c->inputs_[which];//走cache的
+        const std::vector<std::shared_ptr<RemoteMemTableMetaData>>& files = c->inputs_[which];
         for (size_t i = 0; i < files.size(); i++) {
-          list[num++] = table_cache_->NewIterator(options, files[i]);
+          list[num++] = table_cache_->NewIterator(options, files[i]);//走cache的
           //printf("MakeInputIterator:单层 files[%d][%d] meta: Level is %d, Num is %lu, Belong_node_id is %lu\n", which, i, files[i]->level, files[i]->number, files[i]->belong_node_id);
         }
       } else {

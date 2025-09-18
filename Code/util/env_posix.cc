@@ -95,6 +95,7 @@ void PosixEnv::Schedule(
         DEBUG_arg("CompactionThreadPool : queue length has been too long %d elements in the queue\n", compaction.queue_len_.load());
         return;
       }
+      //printf("Schedule CompactionThreadPool len : %d\n", compaction.queue_len_.load());
       compaction.Schedule(background_work_function, background_work_arg);
       break;
     case OtherCompactionThreadPool:
@@ -103,6 +104,7 @@ void PosixEnv::Schedule(
         DEBUG_arg("OtherCompactionThreadPool : queue length has been too long %d elements in the queue\n", other_compaction.queue_len_.load());
         return;
       }
+      printf("Schedule OtherCompactionThreadPool len : %d\n", other_compaction.queue_len_.load());
       other_compaction.Schedule(background_work_function, background_work_arg);
       break;
 //    case SubcompactionThreadPool:
