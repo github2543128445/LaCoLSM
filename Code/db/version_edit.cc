@@ -87,7 +87,7 @@ RemoteMemTableMetaData::~RemoteMemTableMetaData() {
         assert(false);
       }
     }else{
-      printf("~RemoteMemTableMetaData: Other Delete, Num is %lu, Node %d try to deallocate Node %d remote memory\n", number, rdma_mg->node_id, belong_node_id);
+      //printf("~RemoteMemTableMetaData: Other Delete, Num is %lu, Node %d try to deallocate Node %d remote memory\n", number, rdma_mg->node_id, belong_node_id);
       //Prepare_Batch_Deallocate();//LZYDEL
     }
 

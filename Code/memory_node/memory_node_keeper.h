@@ -51,6 +51,7 @@ class Memory_Node_Keeper {
                          std::string& client_ip, uint8_t target_node_id);
   Status DoCompactionWork(CompactionState* compact, std::string& client_ip);
   void ProcessKeyValueCompaction(SubcompactionState* sub_compact);
+  void ProcessKeyValueCompactionPlusCases(SubcompactionState* sub_compact,int cases);
   Status DoCompactionWorkWithSubcompaction(CompactionState* compact,
                                            std::string& client_ip);
   Status OpenCompactionOutputFile(SubcompactionState* compact);
@@ -147,6 +148,72 @@ class Memory_Node_Keeper {
   void set_usesubcompaction(bool b){usesubcompaction=b;}//LZY add
   static std::shared_ptr<RDMA_Manager> rdma_mg;
 //  RDMA_Manager* rdma_mg;
+
+
+  //LZYADD ↓
+  std::deque<int> C1_detail[4][5];//实际执行的5个stage：解析任务，读table，排序，写table，整理并发回元数据改动
+  std::mutex C1_detail_mutex;
+  void C1_detail_append(int value,int cases,int stage){
+    std::lock_guard<std::mutex> lock(C1_detail_mutex);
+    C1_detail[cases][stage].push_back(value);
+  }
+  void MN_Report(){
+    #if NEARDATACOMPACTION == 0
+    printf("///Compactor is 0///\n");
+    #endif
+    #if NEARDATACOMPACTION == 1
+    printf("///Compactor is 1///\n");
+    for(int i=0;i<4;i++){
+      for(int j=0;j<5;j++){
+        printf("Detail Work Case %d Stage %d: ",i+1,j+1);
+        double avg=0.0,p1=0.0,p5=0.0,p10=0.0,p50=0.0,p90=0.0,p95=0.0,p99=0.0;
+        int q_size = C1_detail[i][j].size();
+        for(auto& item:C1_detail[i][j]){  
+          avg += ((double)item)/q_size;
+        }
+        if(q_size > 0){
+          std::sort(C1_detail[i][j].begin(),C1_detail[i][j].end());
+          p1 = C1_detail[i][j][q_size*0.01];
+          p5 = C1_detail[i][j][q_size*0.05];
+          p10 = C1_detail[i][j][q_size*0.1];
+          p50 = C1_detail[i][j][q_size*0.5];
+          p90 = C1_detail[i][j][q_size*0.9];
+          p95 = C1_detail[i][j][q_size*0.95];
+          p99 = C1_detail[i][j][q_size*0.99];
+        }
+        if(avg>0.01) printf("avg = %d,P1 = %d,P5 = %d,P10 = %d,P50 = %d,P90 = %d,P95 = %d,P99 = %d ///\n",(int)avg,(int)p1,(int)p5,(int)p10,(int)p50,(int)p90,(int)p95,(int)p99);
+        else printf("no data ///\n");
+      }
+    }
+    printf("---- Show C1 Compaction Cost ----\n");
+    #endif
+    #if NEARDATACOMPACTION == 2
+    printf("///Compactor is 2///\n");
+    for(int i=0;i<4;i++){
+      for(int j=0;j<5;j++){
+        printf("Detail Work Case %d Stage %d: ",i+1,j+1);
+        double avg=0.0,p1=0.0,p5=0.0,p10=0.0,p50=0.0,p90=0.0,p95=0.0,p99=0.0;
+        int q_size = C1_detail[i][j].size();
+        for(auto& item:C1_detail[i][j]){  
+          avg += ((double)item)/q_size;
+        }
+        if(q_size > 0){
+          std::sort(C1_detail[i][j].begin(),C1_detail[i][j].end());
+          p1 = C1_detail[i][j][q_size*0.01];
+          p5 = C1_detail[i][j][q_size*0.05];
+          p10 = C1_detail[i][j][q_size*0.1];
+          p50 = C1_detail[i][j][q_size*0.5];
+          p90 = C1_detail[i][j][q_size*0.9];
+          p95 = C1_detail[i][j][q_size*0.95];
+          p99 = C1_detail[i][j][q_size*0.99];
+        }
+        if(avg>0.01) printf("avg = %d,P1 = %d,P5 = %d,P10 = %d,P50 = %d,P90 = %d,P95 = %d,P99 = %d ///\n",(int)avg,(int)p1,(int)p5,(int)p10,(int)p50,(int)p90,(int)p95,(int)p99);
+        else printf("no data ///\n");
+      }
+    }
+    #endif
+  }
+  //LZYADD ↑
  private:
   int pr_size;
   std::unordered_map<unsigned int, std::pair<std::mutex, std::condition_variable>> imm_notifier_pool;

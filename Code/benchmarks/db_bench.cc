@@ -985,6 +985,7 @@ class Benchmark {
     }
     delete[] arg;
     rdma_mg->Finish_and_Wait();
+    sleep(3);
     if(n>=8) exit(0);//LZYADD
     rdma_mg->Print_Remote_CPU_RPC(0);
     db_->WaitforAllbgtasks(false);

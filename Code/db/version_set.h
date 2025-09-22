@@ -542,6 +542,21 @@ class Compaction {
 
   // Return the level that is being compacted.  Inputs from "level"
   // and "level+1" will be merged to produce a set of "level+1" files.
+  int WhatCase(int usesubcompaction){
+    if (level() == 0){//Level 0
+      if(usesubcompaction && CanSubCompaction()){ //L0 + Sub
+        return 0;
+      }else{//L0 no Sub
+        return 1;
+      }
+    }else{//Level N
+      if(usesubcompaction && CanSubCompaction()){//LN + Sub
+        return 2;
+      }else{//LN no Sub
+      return 3;
+    }
+  }
+  }
   int level() const { return level_; }
   void SetLevel(int level) { level_ = level; }
   void SetTableType(Table_Type t_type){table_type = t_type; }

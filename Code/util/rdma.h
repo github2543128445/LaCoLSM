@@ -133,7 +133,8 @@ enum RDMA_Command_Type {
   create_cpu_refresher,
   cpu_utilization_heartbeat,
   benchmark_finish,
-  remote_data_compaction
+  remote_data_compaction,
+  mn_report
 };
 enum file_type { log_type, others };
 struct fs_sync_command {
@@ -357,7 +358,23 @@ class RDMA_Manager {
       sleep(1);
     }
     printf("All nodes' benchmark finished, exit...\n");
-    return;
+    for (auto iter : memory_nodes) {
+      int id = iter.first;
+      RDMA_Request* send_pointer;
+      ibv_mr send_mr = {};
+      Allocate_Local_RDMA_Slot(send_mr, Message);
+      send_pointer = (RDMA_Request*)send_mr.addr;
+      send_pointer->command = mn_report;
+      post_send<RDMA_Request>(&send_mr, id, std::string("main"));  
+      ibv_wc wc[2] = {};
+      if (poll_completion(wc, 1, std::string("main"), true, id)){
+        fprintf(stderr,"Let_MN_Report: FAIL\n");
+        return;
+      }
+      printf("Let_MN_Report: SUCCESS\n");
+      return;
+    }
+
   }
   void CN_create_qp_handler(RDMA_Request* request, std::string client_ip,uint8_t target_node_id) {//参考Memory_Node_Keeper::create_qp_handler LZYADD
     printf("CN_create_qp_handler:cp0\n");

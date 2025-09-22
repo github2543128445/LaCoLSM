@@ -1320,7 +1320,7 @@ Status DBImpl::DoRemoteCompactionWork2(CompactionState* compact,uint8_t target_n
   assert(versions_->NumLevelFiles(compact->compaction->level()) > 0);
   assert(compact->builder == nullptr);
 
-  printf("DoRemoteCompactionWork:cp0\n");
+  //printf("DoRemoteCompactionWork:cp0\n");
   Iterator* input = versions_->MakeInputIterator(compact->compaction); //从compact->compaction里取上下两层的数据
 
   input->SeekToFirst();
@@ -1337,7 +1337,7 @@ Status DBImpl::DoRemoteCompactionWork2(CompactionState* compact,uint8_t target_n
   SequenceNumber last_sequence_for_key = kMaxSequenceNumber;
   Slice key;
   assert(input->Valid());
-  printf("DoRemoteCompactionWork:cp1\n");
+  //printf("DoRemoteCompactionWork:cp1\n");
   while (input->Valid()) {
     key = input->key();
     bool drop = false;
@@ -1367,7 +1367,7 @@ Status DBImpl::DoRemoteCompactionWork2(CompactionState* compact,uint8_t target_n
           printf("DoRemoteCompactionWork: while-Makeoutput ERROR\n");
           break;
         }
-        printf("DoRemoteCompactionWork: while-Makeoutput\n");
+        //printf("DoRemoteCompactionWork: while-Makeoutput\n");
       }
       
       if (compact->builder->NumEntries() == 0) {
@@ -1388,12 +1388,12 @@ Status DBImpl::DoRemoteCompactionWork2(CompactionState* compact,uint8_t target_n
           printf("DoRemoteCompactionWork: while-FinishOneFile ERROR\n");
           break;
         }
-        printf("DoRemoteCompactionWork: while-FinishOneFile\n");
+        //printf("DoRemoteCompactionWork: while-FinishOneFile\n");
       }
     }
     input->Next();
   }
-  printf("DoRemoteCompactionWork:cp2\n");
+  //printf("DoRemoteCompactionWork:cp2\n");
   if (status.ok() && compact->builder != nullptr) {//LZY:收尾
     //    assert(key.data()[0] == '0');
     compact->current_output()->largest.DecodeFrom(key);
@@ -1406,7 +1406,7 @@ Status DBImpl::DoRemoteCompactionWork2(CompactionState* compact,uint8_t target_n
   }
   delete input;
   input = nullptr;
-  printf("DoRemoteCompactionWork:end\n");
+  //printf("DoRemoteCompactionWork:end\n");
   CompactionStats stats;
   //下面的在MN中没有， MN使用了InstallCompactionResultsToComputePreparation(compact);
   //LZYDELALL,下面全删了,不符合异地的逻辑
@@ -1446,10 +1446,15 @@ Status DBImpl::DoRemoteCompactionWork3(CompactionState* compact,uint8_t target_n
   // } else {
   //   compact->smallest_snapshot = snapshots_.oldest()->sequence_number();
   // }
-  printf("DoRemoteCompactionWork:cp0\n");
+  //printf("DoRemoteCompactionWork:cp0\n");
+  int cases = compact->compaction->WhatCase(options_.usesubcompaction);
+  auto start_time = std::chrono::steady_clock::now();
   Iterator* input = versions_->MakeInputIterator(compact->compaction); //从compact->compaction里取上下两层的数据
-
   input->SeekToFirst();
+  auto end_time = std::chrono::steady_clock::now();
+  C2_detail_append(std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count(), cases, 1);
+  unsigned long long C2_Stage3_time = 0;
+  start_time = std::chrono::steady_clock::now();
 #ifndef NDEBUG
   int Not_drop_counter = 0;
   int number_of_key = 0;
@@ -1463,7 +1468,7 @@ Status DBImpl::DoRemoteCompactionWork3(CompactionState* compact,uint8_t target_n
   SequenceNumber last_sequence_for_key = kMaxSequenceNumber;
   std::string key;
   assert(input->Valid());
-  printf("DoRemoteCompactionWork:cp1\n");
+  //printf("DoRemoteCompactionWork:cp1\n");
   while (input->Valid() && !shutting_down_.load(std::memory_order_acquire)) {
     key = input->key().ToString();
     assert(input->Valid());
@@ -1496,7 +1501,7 @@ Status DBImpl::DoRemoteCompactionWork3(CompactionState* compact,uint8_t target_n
           printf("DoRemoteCompactionWork: while-Makeoutput ERROR\n");
           break;
         }
-        printf("DoRemoteCompactionWork: while-Makeoutput\n");
+        //printf("DoRemoteCompactionWork: while-Makeoutput\n");
       }
       
       if (compact->builder->NumEntries() == 0) {
@@ -1513,18 +1518,23 @@ Status DBImpl::DoRemoteCompactionWork3(CompactionState* compact,uint8_t target_n
         compact->current_output()->largest.DecodeFrom(key);
         assert(*compact->current_output()->largest.user_key().data() == 0);
         //LZY:写入实际数据到远程，并将元数据写入compact->output(),删除当前builder
-        status = FinishCompactionOutputFile(compact, input);//LZYHOLD看起来和CN中的处理一样，先不改 LZYCONTINUE
+        auto S3_start_time = std::chrono::steady_clock::now();
+        status = FinishCompactionOutputFile(compact, input);//LZYHOLD看起来和MN中的处理一样，先不改
+        auto S3_end_time = std::chrono::steady_clock::now();
+        auto S3_cost_duration = std::chrono::duration_cast<std::chrono::microseconds>(S3_end_time - S3_start_time).count();
+        C2_Stage3_time += S3_cost_duration;
+        printf("FinishCompactionOutputFile: NormalCompaction, cost %lu\n",S3_cost_duration);
         if (!status.ok()) {
           printf("DoRemoteCompactionWork: while-FinishOneFile ERROR\n");
           break;
         }
-        printf("DoRemoteCompactionWork: while-FinishOneFile\n");
+        //printf("DoRemoteCompactionWork: while-FinishOneFile\n");
         //fileout<<"\n\n!!!!FinishOneFile!!!!\n\n";
       }
     }
     input->Next();
   }
-  printf("DoRemoteCompactionWork:cp2\n");
+  //printf("DoRemoteCompactionWork:cp2\n");
   if (status.ok() && shutting_down_.load(std::memory_order_acquire)) {
     status = Status::IOError("Deleting DB during compaction");
   }
@@ -1534,16 +1544,22 @@ Status DBImpl::DoRemoteCompactionWork3(CompactionState* compact,uint8_t target_n
     // The assertion always failed below. need to understand why.
     assert(*compact->current_output()->largest.user_key().data() == 0);
     //LZY:写入实际数据到远程，并将元数据写入compact->output(),删除当前builder
+    auto S3_start_time = std::chrono::steady_clock::now();
     status = FinishCompactionOutputFile(compact, input);//LZYHOLD看起来和MN中的处理一样，先不改
-    printf("DoRemoteCompactionWork: while-FinishOneFile\n");
+    auto S3_end_time = std::chrono::steady_clock::now();
+    auto S3_cost_duration = std::chrono::duration_cast<std::chrono::microseconds>(S3_end_time - S3_start_time).count();
+    C2_Stage3_time += S3_cost_duration;
+    printf("FinishCompactionOutputFile: NormalCompaction, cost %lu\n",S3_cost_duration);
+    //printf("DoRemoteCompactionWork: while-FinishOneFile\n");
     //fileout<<"\n\n!!!!FinishOneFile!!!!\n\n";
+
   }
   if (status.ok()) {
     status = input->status();
   }
   delete input;
   input = nullptr;
-  printf("DoRemoteCompactionWork:end\n");
+  //printf("DoRemoteCompactionWork:end\n");
 
   //下面的在MN中没有， MN使用了InstallCompactionResultsToComputePreparation(compact);
   //LZYDELALL,下面全删了,不符合异地的逻辑
@@ -1572,11 +1588,14 @@ Status DBImpl::DoRemoteCompactionWork3(CompactionState* compact,uint8_t target_n
   // VersionSet::LevelSummaryStorage tmp;
   // Log(options_.info_log, "compacted to: %s", versions_->LevelSummary(&tmp));
   // // NOtifying all the waiting threads.
-
+  end_time = std::chrono::steady_clock::now();
+  C2_detail_append(std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count()-C2_Stage3_time, cases, 2);
+  C2_detail_append(C2_Stage3_time, cases, 3);
   return status;
 }
 Status DBImpl::DoRemoteCompactionWorkWithSubcompaction(CompactionState* compact,uint8_t target_node_id,uint64_t start_num){//LZYADD
   printf("DoRemoteCompactionWorkWithSubcompaction:start\n");
+  int cases = compact->compaction->WhatCase(options_.usesubcompaction);
   Compaction* c = compact->compaction;
   c->GenSubcompactionBoundaries();
   auto boundaries = c->GetBoundaries(); //level 1 除了第一个，各文件最小值
@@ -1635,13 +1654,13 @@ Status DBImpl::DoRemoteCompactionWorkWithSubcompaction(CompactionState* compact,
   thread_pool.reserve(num_threads - 1);
   std::atomic<uint64_t>* remote_file_num = new std::atomic<uint64_t>(start_num);
   for (size_t i = 1; i < compact->sub_compact_states.size(); i++) {
-    thread_pool.emplace_back(&DBImpl::RemoteProcessKeyValueCompaction, this,
-                             &compact->sub_compact_states[i],target_node_id,remote_file_num);
+    thread_pool.emplace_back(&DBImpl::RemoteProcessKeyValueCompactionPlusCases, this,
+                             &compact->sub_compact_states[i],target_node_id,remote_file_num,cases);
   }
 
   // Always schedule the first subcompaction (whether or not there are also
   // others) in the current thread to be efficient with resources
-  RemoteProcessKeyValueCompaction(&compact->sub_compact_states[0],target_node_id,remote_file_num);
+  RemoteProcessKeyValueCompactionPlusCases(&compact->sub_compact_states[0],target_node_id,remote_file_num,cases);
   for (auto& thread : thread_pool) {
     thread.join();
   }
@@ -1657,7 +1676,7 @@ Status DBImpl::DoRemoteCompactionWork(CompactionState* compact,uint8_t target_no
   // } else {
   //   compact->smallest_snapshot = snapshots_.oldest()->sequence_number();
   // }LZYDEL感觉不用管，因为MN没管
-  printf("DoRemoteCompactionWork:cp0\n");
+  //printf("DoRemoteCompactionWork:cp0\n");
   Iterator* input = versions_->MakeInputIterator(compact->compaction); //从compact->compaction里取上下两层的数据
 
   input->SeekToFirst();
@@ -1674,7 +1693,7 @@ Status DBImpl::DoRemoteCompactionWork(CompactionState* compact,uint8_t target_no
   SequenceNumber last_sequence_for_key = kMaxSequenceNumber;
   std::string key;
   assert(input->Valid());
-  printf("DoRemoteCompactionWork:cp1\n");
+  //printf("DoRemoteCompactionWork:cp1\n");
   while (input->Valid() && !shutting_down_.load(std::memory_order_acquire)) {
     key = input->key().ToString();
     assert(input->Valid());
@@ -1707,7 +1726,7 @@ Status DBImpl::DoRemoteCompactionWork(CompactionState* compact,uint8_t target_no
           printf("DoRemoteCompactionWork: while-Makeoutput ERROR\n");
           break;
         }
-        printf("DoRemoteCompactionWork: while-Makeoutput\n");
+        //printf("DoRemoteCompactionWork: while-Makeoutput\n");
       }
       
       if (compact->builder->NumEntries() == 0) {
@@ -1729,13 +1748,13 @@ Status DBImpl::DoRemoteCompactionWork(CompactionState* compact,uint8_t target_no
           printf("DoRemoteCompactionWork: while-FinishOneFile ERROR\n");
           break;
         }
-        printf("DoRemoteCompactionWork: while-FinishOneFile\n");
+        //printf("DoRemoteCompactionWork: while-FinishOneFile\n");
         //fileout<<"\n\n!!!!FinishOneFile!!!!\n\n";
       }
     }
     input->Next();
   }
-  printf("DoRemoteCompactionWork:cp2\n");
+  //printf("DoRemoteCompactionWork:cp2\n");
   if (status.ok() && shutting_down_.load(std::memory_order_acquire)) {
     status = Status::IOError("Deleting DB during compaction");
   }
@@ -1746,7 +1765,7 @@ Status DBImpl::DoRemoteCompactionWork(CompactionState* compact,uint8_t target_no
     assert(*compact->current_output()->largest.user_key().data() == 0);
     //LZY:写入实际数据到远程，并将元数据写入compact->output(),删除当前builder
     status = FinishCompactionOutputFile(compact, input);//LZYHOLD看起来和MN中的处理一样，先不改
-    printf("DoRemoteCompactionWork: while-FinishOneFile\n");
+    //printf("DoRemoteCompactionWork: while-FinishOneFile\n");
     //fileout<<"\n\n!!!!FinishOneFile!!!!\n\n";
   }
   if (status.ok()) {
@@ -1754,7 +1773,7 @@ Status DBImpl::DoRemoteCompactionWork(CompactionState* compact,uint8_t target_no
   }
   delete input;
   input = nullptr;
-  printf("DoRemoteCompactionWork:end\n");
+  //printf("DoRemoteCompactionWork:end\n");
 
   //下面的在MN中没有， MN使用了InstallCompactionResultsToComputePreparation(compact);
   //LZYDELALL,下面全删了,不符合异地的逻辑
@@ -1788,6 +1807,7 @@ Status DBImpl::DoRemoteCompactionWork(CompactionState* compact,uint8_t target_no
 }
 void DBImpl::Other_Compaction_Handler3(void* arg){//参考Memory_Node_Keeper::sst_compaction_handler
   printf("Other_Compaction_Handler:cp0\n");
+  auto start_time = std::chrono::steady_clock::now();
   RDMA_Request* request = ((Arg_for_handler*) arg)->request;
   std::string client_ip = ((Arg_for_handler*) arg)->client_ip;
   uint8_t target_node_id = ((Arg_for_handler*) arg)->target_node_id;
@@ -1859,6 +1879,9 @@ void DBImpl::Other_Compaction_Handler3(void* arg){//参考Memory_Node_Keeper::ss
 //   }
   //先不做SubCompaction,之后再说LZYTODO
   //接下来的CompactionWork应该不和MN完全一样
+  int cases = c.WhatCase(options_.usesubcompaction);
+  auto end_time = std::chrono::steady_clock::now();
+  C2_detail_append(std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count(), cases, 0);
   printf("Other_Compaction_Handler:cp1\n");
   if (options_.usesubcompaction && c.CanSubCompaction()){ //做subcompaction
     status = DoRemoteCompactionWorkWithSubcompaction(compact,target_node_id,start_num);
@@ -1874,9 +1897,9 @@ void DBImpl::Other_Compaction_Handler3(void* arg){//参考Memory_Node_Keeper::ss
   //   InstallSuperVersion();
   // }
   // undefine_mutex.Unlock();
+  start_time = std::chrono::steady_clock::now();
   status = InstallCompactionResultsFor(compact,target_node_id);//LZY:删除老文件，添加新文件的meta，生成真实的Meta数据
   printf("Other_Compaction_Handler: cp3 InstallCompactionResultsRemote\n");
-  
   std::string serilized_ve;
   compact->compaction->edit()->EncodeTo(&serilized_ve);
   printf("%d Other_Compaction_Handler: edit file size = %lu\n", imm_num, compact->compaction->edit()->GetNewFilesNum());
@@ -1933,6 +1956,8 @@ void DBImpl::Other_Compaction_Handler3(void* arg){//参考Memory_Node_Keeper::ss
   delete compact;
   delete (Arg_for_handler*) arg;
   printf("Other_Compaction_Handler:OTHER %d end\n",imm_num);
+  end_time = std::chrono::steady_clock::now();
+  C2_detail_append(std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count(), cases, 4);
 }
 void DBImpl::Other_Compaction_Handler2(void* arg){//参考Memory_Node_Keeper::sst_compaction_handler
   printf("Other_Compaction_Handler:cp0\n");
@@ -2094,7 +2119,7 @@ void DBImpl::Other_Compaction_Handler2(void* arg){//参考Memory_Node_Keeper::ss
   delete (Arg_for_handler*) arg;
   printf("Other_Compaction_Handler:OTHER %d end\n",imm_num);
 }
-void DBImpl::Other_Compaction_Handler(void* arg){//参考Memory_Node_Keeper::sst_compaction_handler
+void DBImpl::Other_Compaction_Handler1(void* arg){//参考Memory_Node_Keeper::sst_compaction_handler
   printf("Other_Compaction_Handler:cp0\n");
   RDMA_Request* request = ((Arg_for_handler*) arg)->request;
   std::string client_ip = ((Arg_for_handler*) arg)->client_ip;
@@ -3958,21 +3983,6 @@ int DBImpl::CompactionTaskWhereToGoTestv5(Compaction* compact){//配合PickLevel
   return shard_target_node_id; //Use NearDataCompaction
 #endif
 }
-int DBImpl::WhatCase(Compaction* compact){
-  if (compact->level() == 0){//Level 0
-    if(options_.usesubcompaction && compact->CanSubCompaction()){ //L0 + Sub
-      return 0;
-    }else{//L0 no Sub
-      return 1;
-    }
-  }else{//Level N
-    if(options_.usesubcompaction && compact->CanSubCompaction()){//LN + Sub
-      return 2;
-    }else{//LN no Sub
-      return 3;
-    }
-  }
-}
 void DBImpl::BackgroundCompactionOrDistribute(void *p){
   if (shutting_down_.load(std::memory_order_acquire)) {
     // No more background work when shutting down.
@@ -4029,7 +4039,7 @@ void DBImpl::BackgroundCompactionOrDistribute(void *p){
        DEBUG_arg("Trival compaction< level 0 file number is %d\n", c->num_input_files(0));
       } else { //LZY : 需要进行Compaction, 先决定谁去做
         auto startwork = std::chrono::high_resolution_clock::now();
-        int worknode = CompactionTaskWhereToGoTestv3(c);
+        int worknode = CompactionTaskWhereToGoPureRemote(c);
         auto endwork = std::chrono::high_resolution_clock::now();
         int distribute_latancy = std::chrono::duration_cast<std::chrono::microseconds>(endwork - startwork).count();
         distribute_lat_append(distribute_latancy);
@@ -4507,7 +4517,6 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {//LZY:准备�
 Status DBImpl::FinishCompactionOutputFile(SubcompactionState* compact,
                                           Iterator* input) {
   //LZY:写入实际数据到远程，并将元数据写入compact->output(),删除当前builder
-  auto start_time = std::chrono::steady_clock::now();
   assert(compact != nullptr);
 //  assert(compact->outfile != nullptr);
   assert(compact->builder != nullptr);
@@ -4564,9 +4573,6 @@ Status DBImpl::FinishCompactionOutputFile(SubcompactionState* compact,
           (unsigned long long)current_bytes);
     }
   }
-  auto end_time = std::chrono::steady_clock::now();
-  auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
-  printf("FinishCompactionOutputFile time cost: %lld us\n", (unsigned long long)duration.count());
   return s;
 }
                                           
@@ -5105,6 +5111,8 @@ void DBImpl::InstallSuperVersion() {
 }
 void DBImpl::RemoteDataCompaction(Compaction* c,uint8_t target_node_id){//参考DBImpl::NearDataCompaction
   std::shared_ptr<RDMA_Manager> rdma_mg = env_->rdma_mg;
+  int cases = c->WhatCase(options_.usesubcompaction);
+  auto start_time = std::chrono::steady_clock::now();
   // register the memory block from the remote memory
   RDMA_Request* send_pointer;
   ibv_mr send_mr = {};
@@ -5148,7 +5156,9 @@ void DBImpl::RemoteDataCompaction(Compaction* c,uint8_t target_node_id){//参考
     fprintf(stderr, "failed to poll send for remote memory register\n");
     return;
   } //发送并等等待结果 流程是把控制信息发给对方，对方表示收到， 对方拿着rkey再过来读数据（无感知）
-
+  auto end_time = std::chrono::steady_clock::now();
+  C2_append(std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count(),cases,0);//发送耗时
+  start_time = std::chrono::steady_clock::now();
   //printf("RemoteDataCompaction cp1\n");
   asm volatile ("sfence\n" : : );
   asm volatile ("lfence\n" : : );
@@ -5160,6 +5170,9 @@ void DBImpl::RemoteDataCompaction(Compaction* c,uint8_t target_node_id){//参考
   while (imm_num != *CN_imme_data[target_node_id]){//等待任务编号的回收
     CN_cv_imme[target_node_id]->wait(lck);
   }
+  end_time = std::chrono::steady_clock::now();
+  C2_append(std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count(),cases,1);//等待处理耗时
+  start_time = std::chrono::steady_clock::now();
   //printf("RemoteDataCompaction cp2\n");
   size_t buffer_size = *CN_byte_len[target_node_id];
   *CN_byte_len[target_node_id] = 0;
@@ -5185,6 +5198,8 @@ void DBImpl::RemoteDataCompaction(Compaction* c,uint8_t target_node_id){//参考
   DEBUG_arg("Edit new file number is %lu\n", new_file_size);
   //edit.MySetFileNumbers(file_number_start,env_->rdma_mg->node_id);//LZYCHA，争夺所有权
   edit.GetNewFiles();
+  end_time = std::chrono::steady_clock::now();
+  C2_append(std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count(),cases,2);//处理写回的元数据
   {
     printf("RemoteDataCompaction cp4\n");
     std::unique_lock<std::mutex> sv_lck(superversion_memlist_mtx);
@@ -5217,6 +5232,8 @@ void DBImpl::RemoteDataCompaction(Compaction* c,uint8_t target_node_id){//参考
 }
 void DBImpl::NearDataCompaction(Compaction* c) {
   std::shared_ptr<RDMA_Manager> rdma_mg = env_->rdma_mg;
+  int cases = c->WhatCase(options_.usesubcompaction);
+  auto start_time = std::chrono::steady_clock::now();
   // register the memory block from the remote memory
   RDMA_Request* send_pointer;
   ibv_mr send_mr = {};
@@ -5277,6 +5294,9 @@ void DBImpl::NearDataCompaction(Compaction* c) {
     fprintf(stderr, "failed to poll send for remote memory register\n");
     return;
   }
+  auto end_time = std::chrono::steady_clock::now();
+  C1_append(std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count(),cases,0);
+  start_time = std::chrono::steady_clock::now();
 #ifdef WITHPERSISTENCE
 
   asm volatile ("sfence\n" : : );
@@ -5368,6 +5388,9 @@ void DBImpl::NearDataCompaction(Compaction* c) {
   while (imm_num != *imme_data){
     cv_imme->wait(lck);
   }
+  end_time = std::chrono::steady_clock::now();
+  C1_append(std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count(),cases,1);
+  start_time = std::chrono::steady_clock::now();
   size_t buffer_size = *byte_len;
   *byte_len = 0;
   *imme_data = 0;
@@ -5408,6 +5431,8 @@ void DBImpl::NearDataCompaction(Compaction* c) {
   DEBUG_arg("Edit new file number is %lu\n", new_file_size);
   edit.MySetFileNumbers(file_number_start, env_->rdma_mg->node_id);//LZYCHA，争夺所有权
   edit.GetNewFiles();
+  end_time = std::chrono::steady_clock::now();
+  C1_append(std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count(),cases,2);
   {
     std::unique_lock<std::mutex> sv_lck(superversion_memlist_mtx);
     // TODO: remove the version id argument because we no longer need it.
@@ -6065,7 +6090,7 @@ void DBImpl::ResetThreadLocalSuperVersions() {
 //}
 Status DBImpl::DoCompactionWorkWithSubcompaction(CompactionState* compact) {  
   Compaction* c = compact->compaction;
-  int cases = WhatCase(c);
+  int cases = c->WhatCase(options_.usesubcompaction);
   auto start_time = std::chrono::steady_clock::now();
   c->GenSubcompactionBoundaries();
   auto boundaries = c->GetBoundaries(); //level 1 除了第一个，各文件最小值
@@ -6286,6 +6311,114 @@ void DBImpl::RemoteProcessKeyValueCompaction(SubcompactionState* sub_compact,uin
   delete input;
   printf("RemoteProcessKeyValueCompaction: end\n");
 }
+void DBImpl::RemoteProcessKeyValueCompactionPlusCases(SubcompactionState* sub_compact,uint8_t target_node_id,std::atomic<uint64_t>* file_num,int cases){//LZYADD 参考DBImpl::ProcessKeyValueCompaction
+  assert(sub_compact->builder == nullptr);
+  //Start and End are userkeys.
+  printf("RemoteProcessKeyValueCompaction: start\n");
+  Slice* start = sub_compact->start;
+  Slice* end = sub_compact->end;
+  if (snapshots_.empty()) {
+    sub_compact->smallest_snapshot = versions_->LastSequence();
+  } else {
+    sub_compact->smallest_snapshot = snapshots_.oldest()->sequence_number();
+  }
+  auto start_time = std::chrono::steady_clock::now();
+  Iterator* input = versions_->MakeInputIterator(sub_compact->compaction);
+
+  if (start != nullptr) {
+    InternalKey start_internal(*start, kMaxSequenceNumber, kValueTypeForSeek);
+    input->Seek(start_internal.Encode());
+    input->Next();
+  } else {
+    input->SeekToFirst();
+  }
+  auto end_time = std::chrono::steady_clock::now();
+  C2_detail_append(std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count(), cases, 1);
+  start_time = std::chrono::steady_clock::now();
+  unsigned long long C2_Stage3_time = 0;
+  Status status;
+  ParsedInternalKey ikey;
+  std::string current_user_key;
+  bool has_current_user_key = false;
+  SequenceNumber last_sequence_for_key = kMaxSequenceNumber;
+  Slice key;
+  assert(input->Valid());
+  while (input->Valid() && !shutting_down_.load(std::memory_order_acquire)) {
+    key = input->key();
+    bool drop = false;
+    if (!ParseInternalKey(key, &ikey)) {
+      // Do not hide error keys
+      current_user_key.clear();
+      has_current_user_key = false;
+      last_sequence_for_key = kMaxSequenceNumber;
+    } else {
+      if (!has_current_user_key ||
+          user_comparator()->Compare(ikey.user_key, Slice(current_user_key)) !=
+          0) {
+        // First occurrence of this user key
+        current_user_key.assign(ikey.user_key.data(), ikey.user_key.size());
+        has_current_user_key = true;
+        last_sequence_for_key = kMaxSequenceNumber;
+      }
+
+      if (last_sequence_for_key <= sub_compact->smallest_snapshot) {
+        drop = true;  // (A)
+      }
+      last_sequence_for_key = ikey.sequence;
+    }
+    if (!drop) {
+      if (sub_compact->builder == nullptr) {
+        status = OpenCompactionOutputFileFor3(sub_compact,file_num->fetch_add(1)); //LZYCHA
+        if (!status.ok()) {
+          break;
+        }
+      }
+      if (sub_compact->builder->NumEntries() == 0) {
+        sub_compact->current_output()->smallest.DecodeFrom(key);
+      }
+      sub_compact->builder->Add(key, input->value());
+      if (sub_compact->builder->FileSize() >= sub_compact->compaction->MaxOutputFileSize()) {
+        sub_compact->current_output()->largest.DecodeFrom(key);
+        auto S3_start_time = std::chrono::steady_clock::now();
+        status = FinishCompactionOutputFile(sub_compact, input);
+        auto S3_end_time = std::chrono::steady_clock::now();
+        auto S3_cost_duration = std::chrono::duration_cast<std::chrono::microseconds>(S3_end_time - S3_start_time).count();
+        C2_Stage3_time += S3_cost_duration;
+        printf("FinishCompactionOutputFile: SubCompaction, cost %lu\n",S3_cost_duration);
+        if (!status.ok()) {
+          break;
+        }
+      }
+    }
+    if (end != nullptr &&
+        user_comparator()->Compare(ExtractUserKey(key), *end) >= 0) {
+      break;
+    }
+    input->Next();
+  }
+
+  if (status.ok() && shutting_down_.load(std::memory_order_acquire)) {
+    status = Status::IOError("Deleting DB during compaction");
+  }
+  if (status.ok() && sub_compact->builder != nullptr) {
+
+    sub_compact->current_output()->largest.DecodeFrom(key);// The SSTable for subcompaction range will be (start, end]
+    auto S3_start_time = std::chrono::steady_clock::now();
+    status = FinishCompactionOutputFile(sub_compact, input);
+    auto S3_end_time = std::chrono::steady_clock::now();
+    auto S3_cost_duration = std::chrono::duration_cast<std::chrono::microseconds>(S3_end_time - S3_start_time).count();
+    C2_Stage3_time += S3_cost_duration;
+    printf("FinishCompactionOutputFile: SubCompaction, cost %lu\n",S3_cost_duration);
+  }
+  if (status.ok()) {
+    status = input->status();
+  }
+  delete input;
+  printf("RemoteProcessKeyValueCompaction: end\n");
+  end_time = std::chrono::steady_clock::now();
+  C2_detail_append(std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count()-C2_Stage3_time, cases, 2);
+  C2_detail_append(C2_Stage3_time, cases, 3);
+}
 void DBImpl::ProcessKeyValueCompaction(SubcompactionState* sub_compact){
   assert(sub_compact->builder == nullptr);
   //Start and End are userkeys.
@@ -6471,7 +6604,7 @@ void DBImpl::ProcessKeyValueCompactionPlusCases(SubcompactionState* sub_compact,
   C0_append(std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count(), cases, 1);//读取耗时
   // Release mutex while we're actually doing the compaction work
 //  undefine_mutex.Unlock();
-  unsigned long long sum_S3 = 0;
+  unsigned long long S3_cost = 0;
   start_time = std::chrono::steady_clock::now();
   if (start != nullptr) {
     InternalKey start_internal(*start, kMaxSequenceNumber, kValueTypeForSeek);
@@ -6589,7 +6722,9 @@ void DBImpl::ProcessKeyValueCompactionPlusCases(SubcompactionState* sub_compact,
         auto S3_start_time = std::chrono::steady_clock::now();
         status = FinishCompactionOutputFile(sub_compact, input);
         auto S3_end_time = std::chrono::steady_clock::now();
-        sum_S3 += std::chrono::duration_cast<std::chrono::microseconds>(S3_end_time - S3_start_time).count();
+        auto S3_cost_duration = std::chrono::duration_cast<std::chrono::microseconds>(S3_end_time - S3_start_time).count();
+        S3_cost += S3_cost_duration;
+        printf("FinishCompactionOutputFile: SubCompaction, cost %lu\n", S3_cost_duration);
         if (!status.ok()) {
           break;
         }
@@ -6625,20 +6760,22 @@ void DBImpl::ProcessKeyValueCompactionPlusCases(SubcompactionState* sub_compact,
     auto S3_start_time = std::chrono::steady_clock::now();
     status = FinishCompactionOutputFile(sub_compact, input);
     auto S3_end_time = std::chrono::steady_clock::now();
-    sum_S3 += std::chrono::duration_cast<std::chrono::microseconds>(S3_end_time - S3_start_time).count();
+    auto S3_cost_duration = std::chrono::duration_cast<std::chrono::microseconds>(S3_end_time - S3_start_time).count();
+    S3_cost += S3_cost_duration;
+    printf("FinishCompactionOutputFile: SubCompaction, cost %lu\n", S3_cost_duration);
   }
   if (status.ok()) {
     status = input->status();
   }
   delete input;
   end_time = std::chrono::steady_clock::now();
-  C0_append(std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count() - sum_S3, cases, 2);//处理耗时
-  C0_append(sum_S3, cases, 3);//写回耗时
+  C0_append(std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count() - S3_cost, cases, 2);//处理耗时
+  C0_append(S3_cost, cases, 3);//写回耗时
 //  input = nullptr;
 }
 Status DBImpl::DoCompactionWork(CompactionState* compact) {
   //LZY:两边还挺不一样的，这是计算节点做compaction
-  int cases = WhatCase(compact->compaction);
+  int cases = compact->compaction->WhatCase(options_.usesubcompaction);
   const uint64_t start_micros = env_->NowMicros();
   int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
 
@@ -6766,7 +6903,9 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         auto S3_start_time = std::chrono::steady_clock::now();
         status = FinishCompactionOutputFile(compact, input);
         auto S3_end_time = std::chrono::steady_clock::now();
-        S3_cost += std::chrono::duration_cast<std::chrono::microseconds>(S3_end_time - S3_start_time).count();
+        auto S3_cost_duration = std::chrono::duration_cast<std::chrono::microseconds>(S3_end_time - S3_start_time).count();
+        S3_cost += S3_cost_duration;
+        printf("FinishCompactionOutputFile: NormalCompaction, cost %lu\n", S3_cost_duration);
         if (!status.ok()) {
           break;
         }
@@ -6810,7 +6949,9 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
     auto S3_start_time = std::chrono::steady_clock::now();
     status = FinishCompactionOutputFile(compact, input);
     auto S3_end_time = std::chrono::steady_clock::now();
-    S3_cost += std::chrono::duration_cast<std::chrono::microseconds>(S3_end_time - S3_start_time).count();
+    auto S3_cost_duration = std::chrono::duration_cast<std::chrono::microseconds>(S3_end_time - S3_start_time).count();
+    S3_cost += S3_cost_duration;
+    printf("FinishCompactionOutputFile: NormalCompaction, cost %lu\n", S3_cost_duration);
   }
   if (status.ok()) {
     status = input->status();
@@ -6831,7 +6972,9 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   // TODO: we can remove this lock.
   undefine_mutex.Lock();
   stats_[compact->compaction->level() + 1].Add(stats);
-
+  end_time = std::chrono::steady_clock::now();
+  C0_append(std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count() - S3_cost, cases, 2);//处理耗时
+  C0_append(S3_cost, cases, 3);//写回耗时
   if (status.ok()) {
     std::unique_lock<std::mutex> l(superversion_memlist_mtx, std::defer_lock);
     status = InstallCompactionResultsSelf(compact, &l);//LZY:删除老文件，添加新文件的meta，生成真实的Meta数据
@@ -6870,9 +7013,6 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   VersionSet::LevelSummaryStorage tmp;
   Log(options_.info_log, "compacted to: %s", versions_->LevelSummary(&tmp));
   // NOtifying all the waiting threads.
-  end_time = std::chrono::steady_clock::now();
-  C0_append(std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count() - S3_cost, cases, 2);//处理耗时
-  C0_append(S3_cost, cases, 3);//写回耗时
   return status;
 }
 

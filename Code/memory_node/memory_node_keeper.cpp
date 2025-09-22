@@ -590,13 +590,18 @@ Status Memory_Node_Keeper::DoCompactionWork(CompactionState* compact,std::string
 //  } else {
 //    compact->smallest_snapshot = snapshots_.oldest()->sequence_number();
 //  }
-
+  int cases = compact->compaction->WhatCase(usesubcompaction);
+  auto start_time = std::chrono::steady_clock::now();
   Iterator* input = versions_->MakeInputIteratorMemoryServer(compact->compaction);
 
   // Release mutex while we're actually doing the compaction work
   //  undefine_mutex.Unlock();
 
   input->SeekToFirst();
+  auto end_time = std::chrono::steady_clock::now();
+  C1_detail_append(std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count(), cases, 1);
+  unsigned long long S3_cost = 0;
+  start_time = std::chrono::steady_clock::now();
 #ifndef NDEBUG
   int Not_drop_counter = 0;
   int number_of_key = 0;
@@ -677,7 +682,12 @@ Status Memory_Node_Keeper::DoCompactionWork(CompactionState* compact,std::string
       compact->compaction->MaxOutputFileSize()) {
         //        assert(key.data()[0] == '0');
         compact->current_output()->largest.DecodeFrom(key);
+        auto S3_start_time = std::chrono::steady_clock::now();
         status = FinishCompactionOutputFile(compact, input);
+        auto S3_end_time = std::chrono::steady_clock::now();
+        auto S3_cost_duration = std::chrono::duration_cast<std::chrono::microseconds>(S3_end_time - S3_start_time).count();
+        printf("FinishCompactionOutputFile: NormalCompaction, cost %lu\n", S3_cost_duration);
+        S3_cost += S3_cost_duration;
         if (!status.ok()) {
           break;
         }
@@ -711,13 +721,22 @@ printf("For compaction, Total number of key touched is %d, KV left is %d\n", num
   if (status.ok() && compact->builder != nullptr) {
     //    assert(key.data()[0] == '0');
     compact->current_output()->largest.DecodeFrom(key);
+    auto S3_start_time = std::chrono::steady_clock::now();
     status = FinishCompactionOutputFile(compact, input);
+    auto S3_end_time = std::chrono::steady_clock::now();
+    auto S3_cost_duration = std::chrono::duration_cast<std::chrono::microseconds>(S3_end_time - S3_start_time).count();
+    printf("FinishCompactionOutputFile: NormalCompaction, cost %lu\n", S3_cost_duration);
+    S3_cost += S3_cost_duration;
   }
   if (status.ok()) {
     status = input->status();
   }
   delete input;
   input = nullptr;
+  end_time = std::chrono::steady_clock::now();
+  C1_detail_append(std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count()-S3_cost, cases, 2);
+  C1_detail_append(S3_cost, cases, 3);
+
 
   CompactionStats stats;
 //  stats.micros = env_->NowMicros() - start_micros - imm_micros;
@@ -754,6 +773,7 @@ Status Memory_Node_Keeper::DoCompactionWorkWithSubcompaction(
   Compaction* c = compact->compaction;
   // TODO need to check the snapeshot in the compute node. Or modify the logic in get()
   c->GenSubcompactionBoundaries();
+  int cases = c->WhatCase(usesubcompaction);
   auto boundaries = c->GetBoundaries();
   auto sizes = c->GetSizes();
   assert(boundaries->size() == sizes->size() - 1);
@@ -810,13 +830,13 @@ Status Memory_Node_Keeper::DoCompactionWorkWithSubcompaction(
   std::vector<port::Thread> thread_pool;
   thread_pool.reserve(num_threads - 1);
   for (size_t i = 1; i < compact->sub_compact_states.size(); i++) {
-    thread_pool.emplace_back(&Memory_Node_Keeper::ProcessKeyValueCompaction, this,
-                             &compact->sub_compact_states[i]);
+    thread_pool.emplace_back(&Memory_Node_Keeper::ProcessKeyValueCompactionPlusCases, this,
+                             &compact->sub_compact_states[i],cases);
   }
 
   // Always schedule the first subcompaction (whether or not there are also
   // others) in the current thread to be efficient with resources
-  ProcessKeyValueCompaction(&compact->sub_compact_states[0]);
+  ProcessKeyValueCompactionPlusCases(&compact->sub_compact_states[0],cases);
   for (auto& thread : thread_pool) {
     thread.join();
   }
@@ -1028,6 +1048,197 @@ printf("For compaction, Total number of key touched is %d, KV left is %d\n", num
     status = input->status();
   }
   delete input;
+  //  input = nullptr;
+}
+void Memory_Node_Keeper::ProcessKeyValueCompactionPlusCases(SubcompactionState* sub_compact,int cases){
+  assert(sub_compact->builder == nullptr);
+  //Start and End are userkeys.
+  Slice* start = sub_compact->start;
+  Slice* end = sub_compact->end;
+//  if (snapshots_.empty()) {
+//    sub_compact->smallest_snapshot = versions_->LastSequence();
+//  } else {
+//    sub_compact->smallest_snapshot = snapshots_.oldest()->sequence_number();
+//  }
+  unsigned long long S3_cost=0;
+  auto start_time = std::chrono::steady_clock::now();
+  Iterator* input = versions_->MakeInputIteratorMemoryServer(sub_compact->compaction);
+  auto end_time = std::chrono::steady_clock::now();
+  C1_detail_append(std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count(), cases, 1);
+  // Release mutex while we're actually doing the compaction work
+  //  undefine_mutex.Unlock();
+  start_time = std::chrono::steady_clock::now();
+  if (start != nullptr) {
+    //The compaction range is (start, end]. so we set 0 as look up key sequence.
+    InternalKey start_internal(*start, 0, kValueTypeForSeek);
+    //tofix(ruihong): too much data copy for the seek here!
+    input->Seek(start_internal.Encode());
+    Slice temp = input->key();
+    assert(internal_comparator_.Compare(temp, *start) > 0 );
+    // The first key larger or equal to start_internal was covered in the subtask before it.
+    // The range for the subcompactions are (s1,e1] (s2,e2] ... (sn,en]
+    input->Next();
+  } else {
+    input->SeekToFirst();
+  }
+#ifndef NDEBUG
+  int Not_drop_counter = 0;
+  int number_of_key = 0;
+#endif
+  Status status;
+  // TODO: try to create two ikey for parsed key, they can in turn represent the current user key
+  //  and former one, which can save the data copy overhead.
+  ParsedInternalKey ikey;
+  std::string current_user_key;
+
+  bool has_current_user_key = false;
+  SequenceNumber last_sequence_for_key = kMaxSequenceNumber;
+  Slice key;
+  assert(input->Valid());
+#ifndef NDEBUG
+  std::string last_internal_key;
+  printf("first key is %s", input->key().ToString().c_str());
+#endif
+  while (input->Valid()) {
+
+    key = input->key();
+    assert(key.ToString() != last_internal_key);
+#ifndef NDEBUG
+    if (start){
+      assert(internal_comparator_.Compare(key, *start) > 0);
+    }
+#endif
+    //    assert(key.data()[0] == '0');
+    //We do not need to check whether the output file have too much overlap with level n + 2.
+    // If there is a lot of overlap subcompaction can be triggered.
+    //compact->compaction->ShouldStopBefore(key) &&
+//    if (sub_compact->builder != nullptr) {
+//
+//      sub_compact->current_output()->largest.SetFrom(ikey);
+//      status = FinishCompactionOutputFile(sub_compact, input);
+//      if (!status.ok()) {
+//        DEBUG("Should stop status not OK\n");
+//        break;
+//      }
+//    }
+    //TODO: record the largest key as the last ikey, find a more efficient way to record
+    // the last key of SSTable.
+
+    // key merged below!!!
+    // Handle key/value, add to state, etc.
+    bool drop = false;
+    if (!ParseInternalKey(key, &ikey)) {
+      // Do not hide error keys
+      current_user_key.clear();
+      has_current_user_key = false;
+      last_sequence_for_key = kMaxSequenceNumber;
+    } else {
+      if (!has_current_user_key){
+        //TODO: can we avoid the data copy here, can we set two buffers in block and make
+        // the old user key not be garbage collected so that the old Slice can be
+        // directly used here.
+        current_user_key.assign(ikey.user_key.data(), ikey.user_key.size());
+#ifndef NDEBUG
+        last_internal_key = key.ToString();
+#endif
+        has_current_user_key = true;
+      }
+      else if(user_comparator()->Compare(ikey.user_key, Slice(current_user_key)) !=
+      0) {
+        // First occurrence of this user key
+        current_user_key.assign(ikey.user_key.data(), ikey.user_key.size());
+#ifndef NDEBUG
+        last_internal_key = key.ToString();
+#endif
+        //        has_current_user_key = true;
+        //        last_sequence_for_key = kMaxSequenceNumber;
+        // this will result in the key not drop, next if will always be false because of
+        // the last_sequence_for_key.
+      }else{
+        drop = true;
+      }
+
+    }
+#ifndef NDEBUG
+    number_of_key++;
+#endif
+    if (!drop) {
+      // Open output file if necessary
+      if (sub_compact->builder == nullptr) {
+        status = OpenCompactionOutputFile(sub_compact);
+        if (!status.ok()) {
+          break;
+        }
+      }
+      if (sub_compact->builder->NumEntries() == 0) {
+//        assert(key.data()[0] == '\000');
+        sub_compact->current_output()->smallest.DecodeFrom(key);
+      }
+#ifndef NDEBUG
+      Not_drop_counter++;
+#endif
+      sub_compact->builder->Add(key, input->value());
+      //      assert(key.data()[0] == '0');
+      // Close output file if it is big enough
+      if (sub_compact->builder->FileSize() >=
+      sub_compact->compaction->MaxOutputFileSize()) {
+//        assert(key.data()[0] == '\000');
+        sub_compact->current_output()->largest.DecodeFrom(key);
+        assert(!sub_compact->current_output()->largest.Encode().ToString().empty());
+
+        assert(internal_comparator_.Compare(sub_compact->current_output()->largest,
+                                            sub_compact->current_output()->smallest)>0);
+        auto S3_start_time = std::chrono::steady_clock::now();
+        status = FinishCompactionOutputFile(sub_compact, input);
+        auto S3_end_time = std::chrono::steady_clock::now();
+        auto S3_cost_duration = std::chrono::duration_cast<std::chrono::microseconds>(S3_end_time - S3_start_time).count();
+        printf("FinishCompactionOutputFile: SubCompaction, cost %lu\n",S3_cost_duration);
+        S3_cost += S3_cost_duration;
+        if (!status.ok()) {
+          DEBUG("Iterator status is not OK\n");
+          break;
+        }
+      }
+    }
+    if (end != nullptr &&
+    user_comparator()->Compare(ExtractUserKey(key), *end) >= 0) {
+      assert(user_comparator()->Compare(ExtractUserKey(key), *end) == 0);
+      break;
+    }
+    //    assert(key.data()[0] == '0');
+    input->Next();
+    //NOTE(ruihong): When the level iterator is invalid it will be deleted and then the key will
+    // be invalid also.
+    //    assert(key.data()[0] == '0');
+
+  }
+  //  reinterpret_cast<TimberSaw::MergingIterator>
+  // You can not call prev here because the iterator is not valid any more
+  //  input->Prev();
+  //  assert(input->Valid());
+#ifndef NDEBUG
+printf("For compaction, Total number of key touched is %d, KV left is %d\n", number_of_key,
+       Not_drop_counter);
+#endif
+  if (status.ok() && sub_compact->builder != nullptr) {
+//    assert(key.size()>0);
+//    assert(key.data()[0] == '\000');
+    sub_compact->current_output()->largest.DecodeFrom(key);// The SSTable for subcompaction range will be (start, end]
+    assert(!sub_compact->current_output()->largest.Encode().ToString().empty());
+    auto S3_start_time = std::chrono::steady_clock::now();
+    status = FinishCompactionOutputFile(sub_compact, input);
+    auto S3_end_time = std::chrono::steady_clock::now();
+    auto S3_cost_duration = std::chrono::duration_cast<std::chrono::microseconds>(S3_end_time - S3_start_time).count();
+    printf("FinishCompactionOutputFile: SubCompaction, cost %lu\n",S3_cost_duration);
+    S3_cost += S3_cost_duration;
+  }
+  if (status.ok()) {
+    status = input->status();
+  }
+  delete input;
+  end_time = std::chrono::steady_clock::now();
+  C1_detail_append(std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count(), cases, 2);
+  C1_detail_append(S3_cost, cases, 3);
   //  input = nullptr;
 }
 Status Memory_Node_Keeper::OpenCompactionOutputFile(SubcompactionState* compact) {
@@ -1535,7 +1746,16 @@ Status Memory_Node_Keeper::InstallCompactionResultsToComputePreparation(
         //printf("Schedule CompactionThreadPool len : %d\n", Compactor_pool_.queue_len_.load());
         Compactor_pool_.Schedule(&Memory_Node_Keeper::RPC_Compaction_Dispatch, thread_pool_args); //将RPC_Compaction_Dispatch函数加入Compactor的线程池  
 //        sst_compaction_handler(nullptr);
-      } else if (receive_msg_buf->command == create_cpu_refresher) {//never use
+      } else if(receive_msg_buf->command == mn_report){
+        rdma_mg->post_receive<RDMA_Request>(&recv_mr[buffer_position],
+                                    compute_node_id,
+                                    client_ip);
+        static int n = 0;
+        if(n == 0){
+          n++;
+          MN_Report();
+        }
+      }else if (receive_msg_buf->command == create_cpu_refresher) {//never use
         // receive a new remote cpu keeper request from compute node
         rdma_mg->post_receive<RDMA_Request>(&recv_mr[buffer_position],
                                             compute_node_id,
@@ -2112,7 +2332,7 @@ printf("server_sock_connect : servername %s. port %d\n",servername,port);
   }
 
   void Memory_Node_Keeper::sst_compaction_handler(void* arg) {
-
+    auto start_time = std::chrono::steady_clock::now();
     RDMA_Request* request = ((Arg_for_handler*) arg)->request;
     std::string client_ip = ((Arg_for_handler*) arg)->client_ip;
     uint8_t target_node_id = ((Arg_for_handler*) arg)->target_node_id;
@@ -2198,7 +2418,9 @@ printf("server_sock_connect : servername %s. port %d\n",servername,port);
     // the slice size is larger than the real size by 1 byte.
     DEBUG_arg("Compaction decoded, the first input file number is %lu \n", c.inputs_[0][0]->number);
     DEBUG_arg("Compaction decoded, input file level is %d \n", c.level());
-
+    auto end_time = std::chrono::steady_clock::now();
+    int cases = c.WhatCase(usesubcompaction);
+    C1_detail_append(std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count(), cases, 0);
     CompactionState* compact = new CompactionState(&c);
     if (usesubcompaction && c.CanSubCompaction()){ 
       status = DoCompactionWorkWithSubcompaction(compact, client_ip);//返回
@@ -2206,6 +2428,7 @@ printf("server_sock_connect : servername %s. port %d\n",servername,port);
       status = DoCompactionWork(compact, client_ip);
     }
     //LZY change ^
+    start_time = std::chrono::steady_clock::now();
     InstallCompactionResultsToComputePreparation(compact);
         //TODO:Send back the new created sstables and wait for another reply.
     std::string serilized_ve;
@@ -2336,6 +2559,8 @@ printf("server_sock_connect : servername %s. port %d\n",servername,port);
     delete request;
     delete compact;
     delete (Arg_for_handler*) arg;
+    end_time = std::chrono::steady_clock::now();
+    C1_detail_append(std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count(), cases, 4);
   }
   // THis funciton is deprecated now
   void Memory_Node_Keeper::qp_reset_handler(RDMA_Request* request,

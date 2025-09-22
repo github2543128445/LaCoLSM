@@ -115,11 +115,33 @@ class DBImpl : public DB{
   std::deque<int> distribute_lat;
   std::mutex distribute_lat_mtx;
 
-  std::deque<int> C0_s[4][4];
+  std::deque<int> C0_s[4][4];//4个stage:分割Sub，读Table，处理，写Table
   std::mutex C0_s_mutex;
   void C0_append(int value,int cases,int stage){
     std::lock_guard<std::mutex> lock(C0_s_mutex);
     C0_s[cases][stage].push_back(value);
+  }
+
+  std::deque<int> C1_s[4][3];//3个stage:发送，等待处理与接收，整理元数据
+  std::mutex C1_s_mutex;
+  void C1_append(int value,int cases,int stage){
+    std::lock_guard<std::mutex> lock(C1_s_mutex);
+    C1_s[cases][stage].push_back(value);
+  }
+
+
+  std::deque<int> C2_s[4][3];//3个stage:发送，等待处理，接收
+  std::mutex C2_s_mutex;
+  void C2_append(int value,int cases,int stage){
+    std::lock_guard<std::mutex> lock(C2_s_mutex);
+    C2_s[cases][stage].push_back(value);
+  }
+
+  std::deque<int> C2_detail[4][5];//实际执行的5个stage：解析任务，读table，排序，写table，整理并发回元数据改动
+  std::mutex C2_detail_mutex;
+  void C2_detail_append(int value,int cases,int stage){
+    std::lock_guard<std::mutex> lock(C2_detail_mutex);
+    C2_detail[cases][stage].push_back(value);
   }
 
   void distribute_lat_append(int value){
@@ -154,7 +176,22 @@ class DBImpl : public DB{
     std::lock_guard<std::mutex> lock(get_lat_mtx);
     get_lat.push_back(value);
   }
+  void Let_MN_Report(int id){
+    std::shared_ptr<RDMA_Manager> rdma_mg = env_->rdma_mg;
+    RDMA_Request* send_pointer;
+    ibv_mr send_mr = {};
+    rdma_mg->Allocate_Local_RDMA_Slot(send_mr, Message);
 
+    send_pointer = (RDMA_Request*)send_mr.addr;
+    send_pointer->command = mn_report;
+    rdma_mg->post_send<RDMA_Request>(&send_mr, id, std::string("main"));
+    ibv_wc wc[2] = {};
+    if (rdma_mg->poll_completion(wc, 1, std::string("main"), true,id)){
+      printf("Let_MN_Report: FAIL\n");
+      return;
+    }
+    printf("Let_MN_Report: SUCCESS\n");
+  }
   // std::mutex adaptive_mtx;
   // std::mutex last_mtx;
   // bool last_compaction = true;
@@ -184,7 +221,7 @@ class DBImpl : public DB{
     }
     #if NEARDATACOMPACTION == 0
     printf("///Compactor is 0///\n");
-        printf("---- Show C0 Compaction Cost ----\n");
+    printf("---- Show C0 Compaction Cost ----\n");
     for(int i=0;i<4;i++){
       for(int j=0;j<4;j++){
         printf("For Case %d Stage %d: ",i+1,j+1);
@@ -203,15 +240,84 @@ class DBImpl : public DB{
           p95 = C0_s[i][j][q_size*0.95];
           p99 = C0_s[i][j][q_size*0.99];
         }
-        printf("avg = %d,P1 = %d,P5 = %d,P10 = %d,P50 = %d,P90 = %d,P95 = %d,P99 = %d ///\n",(int)avg,(int)p1,(int)p5,(int)p10,(int)p50,(int)p90,(int)p95,(int)p99);
+        if(avg>0.01) printf("avg = %d,P1 = %d,P5 = %d,P10 = %d,P50 = %d,P90 = %d,P95 = %d,P99 = %d ///\n",(int)avg,(int)p1,(int)p5,(int)p10,(int)p50,(int)p90,(int)p95,(int)p99);
+        else printf("no data ///\n");
       }
     }
     #endif
     #if NEARDATACOMPACTION == 1
     printf("///Compactor is 1///\n");
+    printf("---- Show C1 Compaction Cost ----\n");
+    for(int i=0;i<4;i++){
+      for(int j=0;j<3;j++){
+        printf("For Case %d Stage %d: ",i+1,j+1);
+        double avg=0.0,p1=0.0,p5=0.0,p10=0.0,p50=0.0,p90=0.0,p95=0.0,p99=0.0;
+        int q_size = C1_s[i][j].size();
+        for(auto& item:C1_s[i][j]){
+          avg += ((double)item)/q_size;
+        }
+        if(q_size > 0){
+          std::sort(C1_s[i][j].begin(),C1_s[i][j].end());
+          p1 = C1_s[i][j][q_size*0.01];
+          p5 = C1_s[i][j][q_size*0.05];
+          p10 = C1_s[i][j][q_size*0.1];
+          p50 = C1_s[i][j][q_size*0.5];
+          p90 = C1_s[i][j][q_size*0.9];
+          p95 = C1_s[i][j][q_size*0.95];
+          p99 = C1_s[i][j][q_size*0.99];
+        }
+        if(avg>0.01) printf("avg = %d,P1 = %d,P5 = %d,P10 = %d,P50 = %d,P90 = %d,P95 = %d,P99 = %d ///\n",(int)avg,(int)p1,(int)p5,(int)p10,(int)p50,(int)p90,(int)p95,(int)p99);
+        else printf("no data ///\n");
+      }
+    }
     #endif
     #if NEARDATACOMPACTION == 2
     printf("///Compactor is 2///\n");
+    printf("---- Show C2 Compaction Cost ----\n");
+    for(int i=0;i<4;i++){
+      for(int j=0;j<3;j++){
+        printf("For Case %d Stage %d: ",i+1,j+1);
+        double avg=0.0,p1=0.0,p5=0.0,p10=0.0,p50=0.0,p90=0.0,p95=0.0,p99=0.0;
+        int q_size = C2_s[i][j].size();
+        for(auto& item:C2_s[i][j]){
+          avg += ((double)item)/q_size;
+        }
+        if(q_size > 0){
+          std::sort(C2_s[i][j].begin(),C2_s[i][j].end());
+          p1 = C2_s[i][j][q_size*0.01];
+          p5 = C2_s[i][j][q_size*0.05];
+          p10 = C2_s[i][j][q_size*0.1];
+          p50 = C2_s[i][j][q_size*0.5];
+          p90 = C2_s[i][j][q_size*0.9];
+          p95 = C2_s[i][j][q_size*0.95];
+          p99 = C2_s[i][j][q_size*0.99];
+        }
+        if(avg>0.01) printf("avg = %d,P1 = %d,P5 = %d,P10 = %d,P50 = %d,P90 = %d,P95 = %d,P99 = %d ///\n",(int)avg,(int)p1,(int)p5,(int)p10,(int)p50,(int)p90,(int)p95,(int)p99);
+        else printf("no data ///\n");
+      }
+    }
+    for(int i=0;i<4;i++){
+      for(int j=0;j<5;j++){
+        printf("Detail Work Case %d Stage %d: ",i+1,j+1);
+        double avg=0.0,p1=0.0,p5=0.0,p10=0.0,p50=0.0,p90=0.0,p95=0.0,p99=0.0;
+        int q_size = C2_detail[i][j].size();
+        for(auto& item:C2_detail[i][j]){  
+          avg += ((double)item)/q_size;
+        }
+        if(q_size > 0){
+          std::sort(C2_detail[i][j].begin(),C2_detail[i][j].end());
+          p1 = C2_detail[i][j][q_size*0.01];
+          p5 = C2_detail[i][j][q_size*0.05];
+          p10 = C2_detail[i][j][q_size*0.1];
+          p50 = C2_detail[i][j][q_size*0.5];
+          p90 = C2_detail[i][j][q_size*0.9];
+          p95 = C2_detail[i][j][q_size*0.95];
+          p99 = C2_detail[i][j][q_size*0.99];
+        }
+        if(avg>0.01) printf("avg = %d,P1 = %d,P5 = %d,P10 = %d,P50 = %d,P90 = %d,P95 = %d,P99 = %d ///\n",(int)avg,(int)p1,(int)p5,(int)p10,(int)p50,(int)p90,(int)p95,(int)p99);
+        else printf("no data ///\n");
+      }
+    }
     printf("---- Show Compaction Time ----\n");
     printf("Compaction Time: Local = %d\n",compaction_time_local);
     printf("In MN:\n");
@@ -485,7 +591,7 @@ class DBImpl : public DB{
   void MaybeScheduleFlushOrCompaction() EXCLUSIVE_LOCKS_REQUIRED(undefine_mutex);
   static void BGWork_Flush(void* thread_args);
   static void BGWork_Compaction(void* thread_args);
-  void Other_Compaction_Handler(void* arg);//LZYADD
+  void Other_Compaction_Handler1(void* arg);//LZYADD
   void Other_Compaction_Handler2(void* arg);//LZYADD
   void Other_Compaction_Handler3(void* arg);//LZYADD
   static void BGWork_CompactionOthers(void* thread_args);//LZYADD
@@ -516,8 +622,8 @@ class DBImpl : public DB{
       EXCLUSIVE_LOCKS_REQUIRED(undefine_mutex);
   void ProcessKeyValueCompaction(SubcompactionState* sub_compact);
   void ProcessKeyValueCompactionPlusCases(SubcompactionState* sub_compact,int cases);//LZYADD
-  int WhatCase(Compaction* compact);//LZYADD
   void RemoteProcessKeyValueCompaction(SubcompactionState* sub_compact,uint8_t target_node_id,std::atomic<uint64_t>* file_num);//LZYADD
+  void RemoteProcessKeyValueCompactionPlusCases(SubcompactionState* sub_compact,uint8_t target_node_id,std::atomic<uint64_t>* file_num,int cases);//LZYADD
   //TODO: We could probably use corotine to do the compaction because the compaction for
   // large key value size can have large cpu stall time for memroy copy.
   Status DoCompactionWorkWithSubcompaction(CompactionState* compact);

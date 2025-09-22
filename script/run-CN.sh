@@ -121,20 +121,16 @@ fi
 # 提取Local Compaction Time
 local_time=$(grep -oP 'Compaction Time: Local = \K\d+' temp.txt | head -1)
 if [ -n "$local_time" ]; then
-    echo "$NO,$compactor,$node_id,$thread,$ops_per_thread,local,$local_time" >> "$compaction_csv"
-    echo "" >> "$compaction_csv"
+    echo "$NO,$compactor,$node_id,$thread,$ops_per_thread,local,$local_time" >> "$compaction_csv"  
 fi
-
 # 提取MN节点的Compaction Time
 while IFS= read -r line; do
     if [[ "$line" =~ MN\ Compaction\ Time:\ Node\ ([0-9]+)\ =\ ([0-9]+) ]]; then
         mn_node="${BASH_REMATCH[1]}"
         mn_time="${BASH_REMATCH[2]}"
         echo "$NO,$compactor,$node_id,$thread,$ops_per_thread,node $mn_node,$mn_time" >> "$compaction_csv"
-        echo "" >> "$compaction_csv"
     fi
 done < <(grep 'MN Compaction Time: Node' temp.txt)
-
 # 提取CN节点的Compaction Time
 while IFS= read -r line; do
     if [[ "$line" =~ CN\ Compaction\ Time:\ Node\ ([0-9]+)\ =\ ([0-9]+) ]]; then
@@ -143,7 +139,7 @@ while IFS= read -r line; do
         echo "$NO,$compactor,$node_id,$thread,$ops_per_thread,node $cn_node,$cn_time" >> "$compaction_csv"
     fi
 done < <(grep 'CN Compaction Time: Node' temp.txt)
-
+echo "" >> "$compaction_csv"
 ##############################################################################
 # 新增：处理C0 Compaction Stage Cost数据，输出到CompactionStageCost.csv
 ##############################################################################
@@ -175,7 +171,39 @@ while IFS= read -r line; do
         stage_csv_row="$NO,$compactor,$thread,$ops_per_thread,$case_num,$stage_num,$avg_val,$p1_val,$p5_val,$p10_val,$p50_val,$p90_val,$p95_val,$p99_val"
         
         # 追加到目标CSV文件
-        echo "$stage_csv_row" >> "$compaction_stage_csv"
-        echo "" >> "$compaction_stage_csv"
+        echo "$stage_csv_row" >> "$compaction_stage_csv"      
     fi
 done < <(grep '^For Case [0-9]\+ Stage [0-9]\+:' temp.txt)
+echo "" >> "$compaction_stage_csv"
+
+detail_compaction_csv="../RemoteCompactionDetail.csv"
+
+# 首次运行时写入表头（列名严格匹配需求）
+if [ ! -f "$detail_compaction_csv" ]; then
+    echo "NO,compactor,thread,ops per thread,case,stage,avg,P1,P5,P10,P50,P90,P95,P99" > "$detail_compaction_csv"
+fi
+
+# 提取temp.txt中"C0 Compaction Cost"相关行，匹配格式：For Case X Stage Y: avg = A,P1 = B,...P99 = Z
+while IFS= read -r line; do
+    # 正则表达式分组提取关键信息：case、stage、avg、P1-P99
+    if [[ "$line" =~ Detail\ Work\ Case\ ([0-9]+)\ Stage\ ([0-9]+):\ avg\ =\ ([0-9]+),P1\ =\ ([0-9]+),P5\ =\ ([0-9]+),P10\ =\ ([0-9]+),P50\ =\ ([0-9]+),P90\ =\ ([0-9]+),P95\ =\ ([0-9]+),P99\ =\ ([0-9]+) ]]; then
+        # 解析正则匹配结果（BASH_REMATCH[1]对应case，[2]对应stage，依次类推）
+        case_num="${BASH_REMATCH[1]}"
+        stage_num="${BASH_REMATCH[2]}"
+        avg_val="${BASH_REMATCH[3]}"
+        p1_val="${BASH_REMATCH[4]}"
+        p5_val="${BASH_REMATCH[5]}"
+        p10_val="${BASH_REMATCH[6]}"
+        p50_val="${BASH_REMATCH[7]}"
+        p90_val="${BASH_REMATCH[8]}"
+        p95_val="${BASH_REMATCH[9]}"
+        p99_val="${BASH_REMATCH[10]}"
+
+        # 构建CSV行（复用已有变量NO、compactor、thread、ops_per_thread）
+        stage_csv_row="$NO,$compactor,$thread,$ops_per_thread,$case_num,$stage_num,$avg_val,$p1_val,$p5_val,$p10_val,$p50_val,$p90_val,$p95_val,$p99_val"
+        
+        # 追加到目标CSV文件
+        echo "$stage_csv_row" >> "$detail_compaction_csv"      
+    fi
+done < <(grep '^Detail Work Case [0-9]\+ Stage [0-9]\+:' temp.txt)
+echo "" >> "$detail_compaction_csv"

@@ -1,5 +1,5 @@
 #!/bin/bash
-# 脚本功能：通过命令行参数指定当前节点编号 → 远程清理 → 同步 → 强制异步执行远程脚本 → 本地执行
+# 脚本功能：通过命令行参数指定当前节点编号 → 清理本地文件 → 远程清理 → 同步 → 强制异步执行远程脚本 → 本地执行
 # 核心优化：采用更彻底的异步方式，确保SSH会话立即断开，兼容不同节点环境
 # 使用方法：./clean_and_sync.sh [节点编号] （1-7之间的整数）
 
@@ -13,6 +13,31 @@ fi
 if ! [[ "$current_node" =~ ^[1-7]$ ]]; then
     echo -e "\033[31m错误：节点编号必须是1-7之间的整数\033[0m"
     exit 1
+fi
+
+
+# 1.5 清理本地指定文件（新增功能）
+echo -e "\n预备步骤：清理本地LaCoLSM一级目录下的sequence.txt和csv文件..."
+# 检查LaCoLSM目录是否存在
+if [ ! -d "/home/kvgroup/louzy/LaCoLSM" ]; then
+    echo -e "\033[33m警告：本地LaCoLSM目录不存在，跳过清理\033[0m"
+else
+    # 删除一级深度中的sequence.txt
+    if [ -f "/home/kvgroup/louzy/LaCoLSM/sequence.txt" ]; then
+        rm -f "/home/kvgroup/louzy/LaCoLSM/sequence.txt"
+        echo -e "\033[32m[成功] 已删除本地LaCoLSM/sequence.txt\033[0m"
+    else
+        echo -e "[信息] 未找到本地LaCoLSM/sequence.txt，无需删除"
+    fi
+
+    # 删除一级深度中的所有csv文件
+    csv_files=$(find /home/kvgroup/louzy/LaCoLSM -maxdepth 1 -type f -name "*.csv")
+    if [ -n "$csv_files" ]; then
+        rm -f /home/kvgroup/louzy/LaCoLSM/*.csv
+        echo -e "\033[32m[成功] 已删除本地LaCoLSM目录下的所有csv文件\033[0m"
+    else
+        echo -e "[信息] 未找到本地LaCoLSM目录下的csv文件，无需删除"
+    fi
 fi
 
 

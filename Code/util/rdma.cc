@@ -909,7 +909,7 @@ bool RDMA_Manager::Local_Memory_Register(char** p2buffpointer,
     name_to_mem_pool.at(pool_name).insert({(*p2mrpointer)->addr, in_use_array});
   }
     else
-      printf("Register memory at memory node for computing node\n");
+      //printf("Register memory at memory node for computing node\n");//LZYDEL
   total_assigned_memory_size =
       total_assigned_memory_size + (*p2mrpointer)->length;
   // fprintf(stdout,
