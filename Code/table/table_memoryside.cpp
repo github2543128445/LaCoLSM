@@ -50,18 +50,21 @@ struct Table_Memory_Side::Rep {
 Status Table_Memory_Side::Open(const Options& options, Table_Memory_Side** table,
                                const std::shared_ptr<RemoteMemTableMetaData>& Remote_table_meta) {
   *table = nullptr;
-#ifndef NDEBUG
-  printf("Open table %lu, creator id %d\n", Remote_table_meta->number, Remote_table_meta->belong_node_id);
-#endif
   // Read the index block
+  //auto start_time = std::chrono::steady_clock::now();
   Status s = Status::OK();
   BlockContents index_block_contents;
   char* data = (char*)Remote_table_meta->remote_dataindex_mrs.begin()->second->addr;
   size_t size = Remote_table_meta->remote_dataindex_mrs.begin()->second->length;
   size_t n = size - kBlockTrailerSize;
-
-//  ReadOptions opt;
-  {
+//   auto end_time = std::chrono::steady_clock::now();
+//   printf("Table_Memory_Side::Open 1 cost time is %lu us \n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+// //  ReadOptions opt;
+//   start_time = std::chrono::steady_clock::now(); 
+#if NEARDATACOMPACTION == 2
+  if (options.paranoid_checks) 
+#endif
+  {//LZYCHA，原本是不检验
     const uint32_t crc = crc32c::Unmask(DecodeFixed32(data + n + 1));
     const uint32_t actual = crc32c::Value(data, n + 1);
     if (actual != crc) {
@@ -75,6 +78,9 @@ Status Table_Memory_Side::Open(const Options& options, Table_Memory_Side** table
       return s;
     }
   }
+  // end_time = std::chrono::steady_clock::now();
+  // printf("Table_Memory_Side::Open 2 cost time is %lu us \n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+  // start_time = std::chrono::steady_clock::now(); 
   index_block_contents.data = Slice(data, n);
 
   //  if (options.paranoid_checks) {
@@ -103,7 +109,8 @@ Status Table_Memory_Side::Open(const Options& options, Table_Memory_Side** table
   }else{
     assert(false);
   }
-
+  // end_time = std::chrono::steady_clock::now();
+  // printf("Table_Memory_Side::Open 3 cost time is %lu us \n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
   return s;
 }
 

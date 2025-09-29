@@ -1,0 +1,13 @@
+NO,compactor,current_node_id,thread,ops_per_thread,type,time
+
+
+
+
+
+
+17,2,3,32,1000000,local,0
+17,2,3,32,1000000,node 1,27
+
+18,2,3,32,1000000,local,0
+18,2,3,32,1000000,node 1,41
+

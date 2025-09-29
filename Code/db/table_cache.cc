@@ -108,6 +108,7 @@ Status TableCache::FindTable(
   // Answer: Every DB_Impl have its own table cache, so there will be never a table cache contain two SSTables with the same number
 //  char buf[sizeof(Remote_memtable_meta->number)];
 //  EncodeFixed64(buf, Remote_memtable_meta->number);
+  auto start_time = std::chrono::steady_clock::now();
   Slice key((char*)&Remote_memtable_meta->number, sizeof(uint64_t));//LZYTODO 直接拿key生成，没考虑从属
   key.append((char*)&Remote_memtable_meta->belong_node_id, sizeof(uint8_t));//LZYADD 考虑从属
   //printf("FindTable: Try find table in cache, Num is %lu, Belong_node_id is %lu\n",Remote_memtable_meta->number,Remote_memtable_meta->belong_node_id);//LZYDEBUG
@@ -125,7 +126,10 @@ Status TableCache::FindTable(
       Table* table = nullptr;
       //printf("Did not find the table in the table_cache, file number is %lu \n ", Remote_memtable_meta->number);
       if (s.ok()) {
+        auto start_time = std::chrono::steady_clock::now();
         s = Table::Open(options_, &table, Remote_memtable_meta);
+        auto end_time = std::chrono::steady_clock::now();
+        printf("TableCache::FindTable: Table::Open cost time is %lu us\n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
       }
       //TODO(ruihong): add remotememtablemeta and Table to the table_cache entry.
       if (!s.ok()) {
@@ -146,12 +150,18 @@ Status TableCache::FindTable(
         *handle = cache_->Insert(key, tf, 1, &DeleteEntry_Compute);
 #endif
       }
+      auto end_time = std::chrono::steady_clock::now();
+      printf("TableCache::FindTable miss, cost time is %lu us\n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
     }else{
-      //printf("FindTable: Cache Hit2\n");
+      //printf("FindTable: Cache Hit2\n");//锁竞争
+      auto end_time = std::chrono::steady_clock::now();
+      printf("TableCache::FindTable hit2, cost time is %lu us\n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
     }
     hash_mtx[hash_value].unlock();
   }else{
-    //printf("FindTable: Cache Hit1\n");
+      //auto end_time = std::chrono::steady_clock::now();
+      //printf("TableCache::FindTable hit1, cost time is %lu us\n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+      //printf("FindTable: Cache Hit1\n");快得一批
   }
 
   return s;
@@ -161,7 +171,10 @@ Status TableCache::FindTable_MemorySide(
     Table_Memory_Side*& table) {
 {
   Status s;
+  auto FindTable_start_time = std::chrono::steady_clock::now();
   s = Table_Memory_Side::Open(options_, &table, Remote_memtable_meta);
+  auto FindTable_end_time = std::chrono::steady_clock::now();
+  printf("TableCache::FindTable_MemorySide: Table_Memory_Side::Open cost time is %lu us\n", std::chrono::duration_cast<std::chrono::microseconds>(FindTable_end_time - FindTable_start_time).count());
 //      DEBUG_arg("file number inserted to the table_cache is %lu ", Remote_memtable_meta.get()->number);
 //      DEBUG_arg("Remote_memtable_meta pointer is %p\n", Remote_memtable_meta.get());
   return s;
@@ -208,6 +221,7 @@ Status TableCache::FindTable_MemorySide(
 Iterator* TableCache::NewIterator(
     const ReadOptions& options,
     const std::shared_ptr<RemoteMemTableMetaData>& remote_table, Table** tableptr) {
+  auto start_time = std::chrono::steady_clock::now();
   if (tableptr != nullptr) {
     *tableptr = nullptr;
   }
@@ -229,6 +243,8 @@ Iterator* TableCache::NewIterator(
   if (tableptr != nullptr) {
     *tableptr = table;
   }
+  auto end_time = std::chrono::steady_clock::now();
+  printf("TableCache::NewIterator: cost time is %lu us \n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
   return result;
 }
 //#ifdef BYTEADDRESSABLE
@@ -258,6 +274,7 @@ Iterator* TableCache::NewIterator_MemorySide(
     const ReadOptions& options,
     const std::shared_ptr<RemoteMemTableMetaData>& remote_table,
     Table_Memory_Side** tableptr) {
+  auto start_time = std::chrono::steady_clock::now();
   if (tableptr != nullptr) {
     *tableptr = nullptr;
   }
@@ -276,7 +293,6 @@ Iterator* TableCache::NewIterator_MemorySide(
   if (!s.ok()) {
     return NewErrorIterator(s);
   }
-
 //  Table_Memory_Side* table = reinterpret_cast<SSTable*>(table_cache->Value(handle))->table_memory;
   // The pointer of p will be different from what stored in the table_cache because the p is a new
   // created Remote memory metadata from the serialized buffer. so no need for the
@@ -287,6 +303,8 @@ Iterator* TableCache::NewIterator_MemorySide(
   if (tableptr != nullptr) {
     *tableptr = table;
   }
+  auto end_time = std::chrono::steady_clock::now();
+  printf("TableCache::NewIterator_MemorySide: cost time is %lu us \n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
   return result;
 }
 Status TableCache::Get(const ReadOptions& options,

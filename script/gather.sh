@@ -10,7 +10,9 @@ fi
 
 node_id="$1"       # 本节点数字ID（如 3）
 filename="${2:-}"  # 文件名前缀（可选）
-base_path="~/louzy/LaCoLSM"  # 远程文件基础路径
+base_path="/home/kvgroup/louzy/LaCoLSM"  # 远程文件基础路径
+# --- 新增：定义本地节点的文件基础路径 ---
+local_base_dir="/home/kvgroup/louzy/LaCoLSM"
 
 # 动态生成文件匹配模式
 if [ -z "$filename" ]; then
@@ -31,15 +33,15 @@ for node_num in {1..7}; do
     local_dir="../data/data-node${node_num}"
     files_exist=0  # 标记是否存在文件
 
-    # ---- 新增逻辑：检查文件是否存在 ----
+    # ---- 检查文件是否存在 ----
     if [ "$node_num" -eq "$node_id" ]; then  # 本地节点检查
-        # 使用ls检查本地文件（不输出结果）
-        if ls "../${file_pattern}" 1>/dev/null 2>&1; then
+        # --- 修改：检查本地节点的 ~/louzy/LaCoLSM 目录 ---
+        # 使用 eval 来正确处理带有通配符的路径
+        if eval ls "${local_base_dir}/${file_pattern}" >/dev/null 2>&1; then
             files_exist=1
         fi
-    else  # 远程节点检查
-        # 通过SSH检查远程文件
-        if ssh "$node" "ls ${base_path}/${file_pattern} 1>/dev/null 2>&1"; then
+    else  # 远程节点检查 (保持不变)
+        if ssh "$node" "ls ${base_path}/${file_pattern} >/dev/null 2>&1"; then
             files_exist=1
         fi
     fi
@@ -50,8 +52,10 @@ for node_num in {1..7}; do
         echo "处理节点 ${node}（存在文件）..."
         
         if [ "$node_num" -eq "$node_id" ]; then
-            cp "../${file_pattern}" "$local_dir/" 2>/dev/null
+            # --- 修改：从本地节点的 ~/louzy/LaCoLSM 目录复制文件 ---
+            eval cp "${local_base_dir}/${file_pattern}" "$local_dir/" 2>/dev/null
         else
+            # 远程节点复制 (保持不变)
             scp "${node}:${base_path}/${file_pattern}" "$local_dir/" 2>/dev/null
         fi
     else
