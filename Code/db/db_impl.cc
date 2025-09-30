@@ -4517,6 +4517,7 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {//LZY:准备�
 Status DBImpl::FinishCompactionOutputFile(SubcompactionState* compact,
                                           Iterator* input) {
   //LZY:写入实际数据到远程，并将元数据写入compact->output(),删除当前builder
+  auto start_time = std::chrono::steady_clock::now();
   assert(compact != nullptr);
 //  assert(compact->outfile != nullptr);
   assert(compact->builder != nullptr);
@@ -4528,7 +4529,7 @@ Status DBImpl::FinishCompactionOutputFile(SubcompactionState* compact,
   Status s = input->status();
   const uint64_t current_entries = compact->builder->NumEntries();
   if (s.ok()) {
-    s = compact->builder->Finish();//LZY:写实际数据
+    s = compact->builder->Finish();//LZY:写实际数据,主要开销
   } else {
     printf("iterator Error!!!!!!!!!!!, Error: %s\n", s.ToString().c_str());
     compact->builder->Abandon();
@@ -4584,7 +4585,7 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact, Iterator* in
 
   const uint64_t output_number = compact->current_output()->number;
   assert(output_number != 0);
-
+  auto start_time = std::chrono::steady_clock::now();
   // Check for iterator errors
   Status s = input->status();
   const uint64_t current_entries = compact->builder->NumEntries();
@@ -4594,9 +4595,15 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact, Iterator* in
     printf("iterator Error!!!!!!!!!!!, Error: %s\n", s.ToString().c_str());
     compact->builder->Abandon();
   }
+  auto end_time = std::chrono::steady_clock::now();
+  printf("FinishCompactionOutputFile time 1 cost: %lu us \n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+  start_time = std::chrono::steady_clock::now();
   compact->builder->get_datablocks_map(compact->current_output()->remote_data_mrs);//数据块  将builder的赋值给output的
   compact->builder->get_dataindexblocks_map(compact->current_output()->remote_dataindex_mrs);//索引块
   compact->builder->get_filter_map(compact->current_output()->remote_filter_mrs);//bloom快
+  end_time = std::chrono::steady_clock::now();
+  printf("FinishCompactionOutputFile time 2 cost: %lu us \n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+  start_time = std::chrono::steady_clock::now();
 #ifndef NDEBUG
   uint64_t file_size = 0;
   for(auto iter : compact->current_output()->remote_data_mrs){
@@ -4637,6 +4644,8 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact, Iterator* in
           (unsigned long long)current_bytes);
     }
   }
+  end_time = std::chrono::steady_clock::now();
+  printf("FinishCompactionOutputFile time 3 cost: %lu us \n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
   return s;
 }
 Status DBImpl::InstallCompactionResultsFor(CompactionState* compact,uint8_t target_node_id){ //类似Memory_Node_Keeper::InstallCompactionResultsToComputePreparation LZYADD

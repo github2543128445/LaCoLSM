@@ -126,10 +126,10 @@ Status TableCache::FindTable(
       Table* table = nullptr;
       //printf("Did not find the table in the table_cache, file number is %lu \n ", Remote_memtable_meta->number);
       if (s.ok()) {
-        auto start_time = std::chrono::steady_clock::now();
+        //auto start_time = std::chrono::steady_clock::now();
         s = Table::Open(options_, &table, Remote_memtable_meta);
-        auto end_time = std::chrono::steady_clock::now();
-        printf("TableCache::FindTable: Table::Open cost time is %lu us\n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+        // auto end_time = std::chrono::steady_clock::now();
+        // printf("TableCache::FindTable: Table::Open cost time is %lu us\n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
       }
       //TODO(ruihong): add remotememtablemeta and Table to the table_cache entry.
       if (!s.ok()) {
@@ -221,7 +221,7 @@ Status TableCache::FindTable_MemorySide(
 Iterator* TableCache::NewIterator(
     const ReadOptions& options,
     const std::shared_ptr<RemoteMemTableMetaData>& remote_table, Table** tableptr) {
-  auto start_time = std::chrono::steady_clock::now();
+  //auto start_time = std::chrono::steady_clock::now();
   if (tableptr != nullptr) {
     *tableptr = nullptr;
   }
@@ -243,8 +243,8 @@ Iterator* TableCache::NewIterator(
   if (tableptr != nullptr) {
     *tableptr = table;
   }
-  auto end_time = std::chrono::steady_clock::now();
-  printf("TableCache::NewIterator: cost time is %lu us \n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+  // auto end_time = std::chrono::steady_clock::now();
+  // printf("TableCache::NewIterator: cost time is %lu us \n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
   return result;
 }
 //#ifdef BYTEADDRESSABLE
@@ -274,7 +274,7 @@ Iterator* TableCache::NewIterator_MemorySide(
     const ReadOptions& options,
     const std::shared_ptr<RemoteMemTableMetaData>& remote_table,
     Table_Memory_Side** tableptr) {
-  auto start_time = std::chrono::steady_clock::now();
+  //auto start_time = std::chrono::steady_clock::now();
   if (tableptr != nullptr) {
     *tableptr = nullptr;
   }
@@ -303,8 +303,8 @@ Iterator* TableCache::NewIterator_MemorySide(
   if (tableptr != nullptr) {
     *tableptr = table;
   }
-  auto end_time = std::chrono::steady_clock::now();
-  printf("TableCache::NewIterator_MemorySide: cost time is %lu us \n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+  // auto end_time = std::chrono::steady_clock::now();
+  // printf("TableCache::NewIterator_MemorySide: cost time is %lu us \n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
   return result;
 }
 Status TableCache::Get(const ReadOptions& options,

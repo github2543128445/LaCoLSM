@@ -30,7 +30,7 @@ Status Table::Open(const Options& options, Table** table,
                    const std::shared_ptr<RemoteMemTableMetaData>& Remote_table_meta) {
   *table = nullptr;
 
-  auto start_time = std::chrono::steady_clock::now();
+  //auto start_time = std::chrono::steady_clock::now();
   // Read the index block
   Status s = Status::OK();
   BlockContents index_block_contents;
@@ -42,9 +42,9 @@ Status Table::Open(const Options& options, Table** table,
   s = ReadDataIndexBlock(
       remote_mr, opt,
       &index_block_contents, Remote_table_meta->shard_target_node_id);
-  auto end_time = std::chrono::steady_clock::now();
-  printf("Table::Open 1 cost time is %lu us \n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
-  start_time = std::chrono::steady_clock::now(); 
+  // auto end_time = std::chrono::steady_clock::now();
+  // printf("Table::Open 1 cost time is %lu us \n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+  // start_time = std::chrono::steady_clock::now(); 
   if (s.ok()) {
     // We've successfully read the footer and the index block: we're
     // ready to serve requests.
@@ -73,8 +73,8 @@ Status Table::Open(const Options& options, Table** table,
   }else{
     assert(false);
   }
-  end_time = std::chrono::steady_clock::now();
-  printf("Table::Open 2 cost time is %lu us \n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count()); 
+  // end_time = std::chrono::steady_clock::now();
+  // printf("Table::Open 2 cost time is %lu us \n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count()); 
   return s;
 }
 

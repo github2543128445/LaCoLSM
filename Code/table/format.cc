@@ -324,7 +324,7 @@ Status ReadDataIndexBlock(ibv_mr* remote_mr, const ReadOptions& options,
 //  printf("Fetch a Index Block");
 
   // Check the crc of the type and the block contents
-  auto start_time = std::chrono::high_resolution_clock::now();
+  //auto start_time = std::chrono::high_resolution_clock::now();
   const char* data = static_cast<char*>(contents.addr);  // Pointer to where Read put the data
   if (options.verify_checksums) {
     const uint32_t crc = crc32c::Unmask(DecodeFixed32(data + n + 1));
@@ -341,8 +341,8 @@ Status ReadDataIndexBlock(ibv_mr* remote_mr, const ReadOptions& options,
 //      DEBUG_arg("Actual IS %d\n", actual);
     }
   }
-  auto end_time = std::chrono::high_resolution_clock::now();
-  printf("ReadDataIndexBlock cost is %zu\n",  std::chrono::duration_cast<std::chrono::nanoseconds>(end_time - start_time).count());
+  //auto end_time = std::chrono::high_resolution_clock::now();
+  //printf("ReadDataIndexBlock cost is %zu\n",  std::chrono::duration_cast<std::chrono::nanoseconds>(end_time - start_time).count());
 
   switch (data[n]) {
     case kNoCompression:

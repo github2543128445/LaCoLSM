@@ -1737,12 +1737,9 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
       } else {
         // Create concatenating iterator for the files from this level
         // one iterator will responsible for multiple remote memtables.
-        auto start_time = std::chrono::steady_clock::now();
         list[num++] = NewTwoLevelFileIterator(
             new Version::LevelFileNumIterator(icmp_, &c->inputs_[which]),
-            &GetFileIterator, table_cache_, options);//也会走Cache
-        auto end_time = std::chrono::steady_clock::now();
-        printf("Iterator* NewTwoLevelFileIterator: cost time is %lu us \n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+            &GetFileIterator, table_cache_, options);//也会走Cache开销忽略不计
       }
     }
   }//LZYTODO，A设计另一条数据路径，只远端访问，不走Cache；B给Cache增加字段，访问时辨别
@@ -1775,12 +1772,9 @@ Iterator* VersionSet::MakeInputIteratorMemoryServer(Compaction* c) {
       } else {
         // Create concatenating iterator for the files from this level
         // one iterator will responsible for multiple remote memtables.
-        auto start_time = std::chrono::steady_clock::now(); 
         list[num++] = NewTwoLevelFileIterator(
             new Version::LevelFileNumIterator(icmp_, &c->inputs_[which]),
-            &GetFileIterator_Memoryside, table_cache_, options);
-        auto end_time = std::chrono::steady_clock::now();
-        printf("Iterator* NewTwoLevelFileIterator: cost time is %lu us \n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+            &GetFileIterator_Memoryside, table_cache_, options);//开销忽略不计
       }
     }
   }

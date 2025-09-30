@@ -1192,7 +1192,6 @@ void Memory_Node_Keeper::ProcessKeyValueCompactionPlusCases(SubcompactionState* 
         status = FinishCompactionOutputFile(sub_compact, input);
         auto S3_end_time = std::chrono::steady_clock::now();
         auto S3_cost_duration = std::chrono::duration_cast<std::chrono::microseconds>(S3_end_time - S3_start_time).count();
-        printf("FinishCompactionOutputFile: SubCompaction, cost %lu\n",S3_cost_duration);
         S3_cost += S3_cost_duration;
         if (!status.ok()) {
           DEBUG("Iterator status is not OK\n");
@@ -1229,7 +1228,6 @@ printf("For compaction, Total number of key touched is %d, KV left is %d\n", num
     status = FinishCompactionOutputFile(sub_compact, input);
     auto S3_end_time = std::chrono::steady_clock::now();
     auto S3_cost_duration = std::chrono::duration_cast<std::chrono::microseconds>(S3_end_time - S3_start_time).count();
-    printf("FinishCompactionOutputFile: SubCompaction, cost %lu\n",S3_cost_duration);
     S3_cost += S3_cost_duration;
   }
   if (status.ok()) {
@@ -1325,7 +1323,7 @@ Status Memory_Node_Keeper::FinishCompactionOutputFile(SubcompactionState* compac
   Status s = input->status();
   const uint64_t current_entries = compact->builder->NumEntries();
   if (s.ok()) {
-    s = compact->builder->Finish();
+    s = compact->builder->Finish(); //生成Bloom、刷数据
   } else {
     printf("iterator Error!!!!!!!!!!!, Error: %s\n", s.ToString().c_str());
     compact->builder->Abandon();
@@ -1371,7 +1369,6 @@ Status Memory_Node_Keeper::FinishCompactionOutputFile(CompactionState* compact,
   assert(compact != nullptr);
   //  assert(compact->outfile != nullptr);
   assert(compact->builder != nullptr);
-
   const uint64_t output_number = compact->current_output()->number;
 //  assert(output_number != 0);
 
