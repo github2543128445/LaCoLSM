@@ -380,15 +380,15 @@ class DBImpl : public DB{
       //int p999 = compaction_latancy_all[q_size*0.999];
       printf("///compaction latancy:avg = %d,P50 = %d,P90 = %d,P99 = %d ///\n",(int)avg,p50,p90,p99);
     }
-    if(!distribute_lat.empty()){
-      std::sort(distribute_lat.begin(),distribute_lat.end());
-      double avg = 0.0;
-      int q_size = distribute_lat.size();
-      for(auto& item:distribute_lat){
-        avg += ((double)item)/q_size;
-      }
-      printf("///Distribute cost:avg = %d us///\n",(int)avg);
-    }
+    // if(!distribute_lat.empty()){
+    //   std::sort(distribute_lat.begin(),distribute_lat.end());
+    //   double avg = 0.0;
+    //   int q_size = distribute_lat.size();
+    //   for(auto& item:distribute_lat){
+    //     avg += ((double)item)/q_size;
+    //   }
+    //   printf("///Distribute cost:avg = %d us///\n",(int)avg);
+    // }
     printf("---- End Show Compaction Latancy ----\n");
     
     // printf("---- Show Compaction Speed ----\n");
@@ -607,6 +607,7 @@ class DBImpl : public DB{
   int CompactionTaskWhereToGo(Compaction* compact);//LZYADD
   int CompactionTaskWhereToGoMod3(Compaction* compact);//LZYADD
   int CompactionTaskWhereToGoPureRemote(Compaction* compact);//LZYADD
+  int CompactionTaskWhereToGoTestv0(Compaction* compact);//LZYADD
   int CompactionTaskWhereToGoTestv1(Compaction* compact);//LZYADD
   int CompactionTaskWhereToGoTestv2(Compaction* compact);//LZYADD
   int CompactionTaskWhereToGoTestv3(Compaction* compact);//LZYADD 当前最优

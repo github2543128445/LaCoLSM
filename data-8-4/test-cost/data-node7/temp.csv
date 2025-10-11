@@ -1,3 +1,0 @@
-NO,compactor,node_id,thread,ops per thread,throughput,bandwith,insert avg,insert lat P50,insert P90,insert P99,dis cost,comp avg,comp p50,comp p90,comp p99,comp speed1,comp speed2,comp speed3,comp speed4
-1,0,1,32,1000000,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
-2,1,1,32,1000000,434287,174.0,4125,1830,2950,5214,0,2396,1504,4235,19380,1026,1042,383,500

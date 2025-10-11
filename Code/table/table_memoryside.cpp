@@ -62,9 +62,9 @@ Status Table_Memory_Side::Open(const Options& options, Table_Memory_Side** table
 // //  ReadOptions opt;
 //   start_time = std::chrono::steady_clock::now(); 
 #if NEARDATACOMPACTION == 2
-  if (options.paranoid_checks) 
+  if (options.paranoid_checks) //LZYCHA，原本是无条件进行
 #endif
-  {//LZYCHA，原本是不检验
+  {
     const uint32_t crc = crc32c::Unmask(DecodeFixed32(data + n + 1));
     const uint32_t actual = crc32c::Value(data, n + 1);
     if (actual != crc) {
