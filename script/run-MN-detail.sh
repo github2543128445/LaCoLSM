@@ -34,7 +34,7 @@ handle_sigint() {
 trap handle_sigint SIGINT
 
 # 运行基准测试
-taskset -c 40-43 ./Server 19843 80 0 > temp.txt 2>&1 &
+taskset -c 40-41 ./Server 19843 80 0 > temp.txt 2>&1 &
 db_bench_pid=$!
 
 # 等待 db_bench 完成

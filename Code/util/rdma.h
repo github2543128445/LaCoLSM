@@ -526,7 +526,7 @@ class RDMA_Manager {
       //backup the function arguments
       int print_counter = 0;
       while (1){
-        double cpu_util_percentage = rpter.getCurrentValue();
+        double cpu_util_percentage = rpter.getCurrentValueCN();
         if (cpu_util_percentage <0){
           continue;
         }

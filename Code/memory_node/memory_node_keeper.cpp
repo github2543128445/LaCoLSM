@@ -1803,7 +1803,7 @@ Status Memory_Node_Keeper::InstallCompactionResultsToComputePreparation(
         rdma_mg->post_receive<RDMA_Request>(&recv_mr[buffer_position],
                                             compute_node_id,
                                             client_ip);
-        printf("RPC: CPU utilization is %f\n", TimberSaw::Memory_Node_Keeper::rdma_mg->rpter.getCurrentValue());
+        printf("RPC: CPU utilization is %f\n", TimberSaw::Memory_Node_Keeper::rdma_mg->rpter.getCurrentValueMN());
 
       } else {
         printf("corrupt message from client. %d\n", receive_msg_buf->command);
@@ -2045,8 +2045,8 @@ printf("server_sock_connect : servername %s. port %d\n",servername,port);
       int print_counter = 0;
       //TODO: REmember to recover the while loop and the continue code below.
       while (1){
-        double cpu_util_percentage = rdma_mg->rpter.getCurrentValue();
-        if (cpu_util_percentage <0){
+        double cpu_util_percentage = rdma_mg->rpter.getCurrentValueMN();
+        if (cpu_util_percentage <0.0001){
           continue;
         }
         for (auto iter : rdma_mg->compute_nodes) {
@@ -2065,8 +2065,6 @@ printf("server_sock_connect : servername %s. port %d\n",servername,port);
             print_counter = 0;
           }
 #endif
-
-
           rdma_mg->post_send<RDMA_Request>(&send_mr, iter.first, std::string("main"));
           ibv_wc wc[2] = {};
           if (rdma_mg->poll_completion(wc, 1, std::string("main"), true,

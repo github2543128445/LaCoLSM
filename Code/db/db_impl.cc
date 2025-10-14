@@ -3844,7 +3844,7 @@ int DBImpl::CompactionTaskWhereToGoTestv4(Compaction* compact){//结合pickv3，
       RMN_Score = 2.69 * RMN_now_achievable_parallel; 
       //RMN + L0 + Sub ↑
       printf("Compaction Task Score 1: Local: %f, RMN: %f, RCN: %f\n", Local_Score, RMN_Score, RCN_Score);
-      if(RMN_Score > Local_Score && (L0_num+L1_num<80) &&(RMN_Score > 10.0 || (RMN_Score > 5.0 && Local_Score < 4.0))){
+      if((RMN_Score > Local_Score && (L0_num+L1_num<80) &&(RMN_Score > 10.0 || (RMN_Score > 5.0 && Local_Score < 5.0)))){
         aim = shard_target_node_id;
       }else{
         aim = -1;
@@ -3890,7 +3890,7 @@ int DBImpl::CompactionTaskWhereToGoTestv4(Compaction* compact){//结合pickv3，
       // }else{
       //   aim = RCN_best_id;
       // }
-      if(RMN_Score > Local_Score && L0_num + L1_num <=36.0){
+      if((RMN_Score/Local_Score > 1.2 && L0_num + L1_num <=36.0 )||(RMN_Score/Local_Score > 2)){
         aim = shard_target_node_id;
       }else{
         aim = -1;
@@ -3975,7 +3975,7 @@ int DBImpl::CompactionTaskWhereToGoTestv4(Compaction* compact){//结合pickv3，
       printf("Compaction Task Score 4 (FreeCore): Local: %f, RCN: %f\n", Local_v_av_core, RCN_most_core);
       if(Local_v_av_core > 5.0){
         aim = -1;
-      }else if( RCN_most_core/Local_v_av_core > 2.0) {
+      }else if( RCN_most_core > Local_v_av_core + 2.0) {
         aim = RCN_best_id;
       }else{
         aim = -1;
@@ -5333,7 +5333,7 @@ void DBImpl::RemoteDataCompaction(Compaction* c,uint8_t target_node_id){//参考
     imm_num = imm_gen->fetch_add(1);
   }
   send_pointer->imm_num = imm_num;
-  uint64_t input_num_file =4 + 5*(c->num_input_files(0) + c->num_input_files(1))/4;//LZYADD
+  uint64_t input_num_file =1 + 2*(c->num_input_files(0) + c->num_input_files(1));//LZYADD
   uint64_t file_number_start = versions_->NewFileNumberBatch(input_num_file);//LZYADD 预留空间给对端
   send_pointer->start_num = file_number_start;//LZYADD
   // Without persistency we don' need to reply to the remote memory after the compute node

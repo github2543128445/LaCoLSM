@@ -268,3 +268,123 @@ double Resource_Printer_PlanB::getCurrentValue() {//LZY:所有CPU核加起来，
   return static_cast<double>(percent);
 
 }
+
+double Resource_Printer_PlanB::getCurrentValueMN() {//LZY:所有CPU核加起来，占用了多少
+  struct tms timeSample;
+  long double percent;
+//  int all_possible_core_num = numa_num_configured_cpus();
+  //TODO(ruihong): make numa_bind_core_num a static variable or a class variable.
+  //TODO(chuqing): generalize the compute node identification by read file
+
+  clock_t now = times(&timeSample);
+  if (now <= lastCPU || timeSample.tms_stime < lastSysCPU ||
+      timeSample.tms_utime < lastUserCPU){
+    //Overflow detection. Just skip this value.
+    // // for debug, ignore it 
+    // std::cout << getCurrentHost() << " : ";
+    // if(now <= lastCPU){
+    //   printf("now <= lastCPU\n");
+    //   std::fprintf(stdout, "now: %Ld; lastCPU: %Ld \n", now, lastCPU);
+    //   // std::cout << "now: " << now << "; lastCPU: " << lastCPU << std::endl;
+    // } else if (timeSample.tms_stime < lastSysCPU) {
+    //   printf("timeSample.tms_stime < lastSysCPU\n");
+    // } else {
+    //   printf("timeSample.tms_utime < lastUserCPU\n");
+    // }
+    percent = -1.0;
+  }
+  else{
+    percent = (timeSample.tms_stime - lastSysCPU) +
+              (timeSample.tms_utime - lastUserCPU);
+    percent /= (now - lastCPU);
+    percent /= (numa_bind_core_num*1.3);// The 1.3 is a calibration parameter LZY changed.
+    percent *= 100;
+  }
+  lastCPU = now;
+  lastSysCPU = timeSample.tms_stime;
+  lastUserCPU = timeSample.tms_utime;
+  
+  if (percent > 0.0){
+#ifdef CALCULATE_MAX_UTIL
+    if (max_util < percent){
+      max_util = static_cast<double>(percent);
+      //printf("Max utilization is %f\n", max_util); LZY delete
+    }
+    // FILE* fp = fopen("/proc/self/status", "r");
+    // char line[128];
+    // while (fgets(line, 128, fp) != NULL)
+    // {
+    //     if (strncmp(line, "VmRSS:", 6) == 0)
+    //     {
+    //         printf("Memory Utilization:%d KB\n", atoi(line + 6));
+    //         break;
+    //     }
+    // }
+    // fclose(fp);
+    //LZY
+#endif
+    current_percent = percent;
+  }
+  return static_cast<double>(percent);
+
+}
+
+double Resource_Printer_PlanB::getCurrentValueCN() {//LZY:所有CPU核加起来，占用了多少
+  struct tms timeSample;
+  long double percent;
+//  int all_possible_core_num = numa_num_configured_cpus();
+  //TODO(ruihong): make numa_bind_core_num a static variable or a class variable.
+  //TODO(chuqing): generalize the compute node identification by read file
+
+  clock_t now = times(&timeSample);
+  if (now <= lastCPU || timeSample.tms_stime < lastSysCPU ||
+      timeSample.tms_utime < lastUserCPU){
+    //Overflow detection. Just skip this value.
+    // // for debug, ignore it 
+    // std::cout << getCurrentHost() << " : ";
+    // if(now <= lastCPU){
+    //   printf("now <= lastCPU\n");
+    //   std::fprintf(stdout, "now: %Ld; lastCPU: %Ld \n", now, lastCPU);
+    //   // std::cout << "now: " << now << "; lastCPU: " << lastCPU << std::endl;
+    // } else if (timeSample.tms_stime < lastSysCPU) {
+    //   printf("timeSample.tms_stime < lastSysCPU\n");
+    // } else {
+    //   printf("timeSample.tms_utime < lastUserCPU\n");
+    // }
+    percent = -1.0;
+  }
+  else{
+    percent = (timeSample.tms_stime - lastSysCPU) +
+              (timeSample.tms_utime - lastUserCPU);
+    percent /= (now - lastCPU);
+    percent /= (numa_bind_core_num*1.8);// The 1.8 is a calibration parameter LZY changed.
+    percent *= 100;
+  }
+  lastCPU = now;
+  lastSysCPU = timeSample.tms_stime;
+  lastUserCPU = timeSample.tms_utime;
+  
+  if (percent > 0.0){
+#ifdef CALCULATE_MAX_UTIL
+    if (max_util < percent){
+      max_util = static_cast<double>(percent);
+      //printf("Max utilization is %f\n", max_util); LZY delete
+    }
+    // FILE* fp = fopen("/proc/self/status", "r");
+    // char line[128];
+    // while (fgets(line, 128, fp) != NULL)
+    // {
+    //     if (strncmp(line, "VmRSS:", 6) == 0)
+    //     {
+    //         printf("Memory Utilization:%d KB\n", atoi(line + 6));
+    //         break;
+    //     }
+    // }
+    // fclose(fp);
+    //LZY
+#endif
+    current_percent = percent;
+  }
+  return static_cast<double>(percent);
+
+}

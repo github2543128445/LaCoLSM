@@ -44,6 +44,8 @@ class Resource_Printer_PlanB {
   long double current_percent;
   int numa_bind_core_num = 0;
   double getCurrentValue();
+  double getCurrentValueMN();
+  double getCurrentValueCN();
   std::string getCurrentHost();
 };
 //create a function which continue to burn CPU cycles.

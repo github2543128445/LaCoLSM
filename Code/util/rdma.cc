@@ -755,12 +755,14 @@ void RDMA_Manager::remote_cpu_util_heart_beater_receiver(RDMA_Request* request, 
   // }
 
 //    uint8_t check_byte = request->content.ive.check_byte;
-  server_cpu_percent.at(target_node_id)->store(request->content.cpu_info.cpu_util);
-  Remote_uti_append(target_node_id, request->content.cpu_info.cpu_util);
+  if(request->content.cpu_info.cpu_util > 0.00001){
+    server_cpu_percent.at(target_node_id)->store(request->content.cpu_info.cpu_util);
+    Remote_uti_append(target_node_id, request->content.cpu_info.cpu_util);
+  }
+
 //  remote_compaction_issued.at(target_node_id_)->store(false);
   //DEBUG_arg("Recieve the cpu utilization %f\n", request->content.cpu_info.cpu_util);
   delete request;
-
 }
 void RDMA_Manager::ConnectQPThroughSocket(std::string qp_type, int socket_fd,
                                           uint8_t& target_node_id) {
@@ -1080,7 +1082,7 @@ void RDMA_Manager::Client_Set_Up_Resources() {
   std::thread CPU_utilization_heartbeat([&](){
     while (1){
       std::this_thread::sleep_for(std::chrono::milliseconds(CPU_UTILIZATION_CACULATE_INTERVAL));
-      double temp = rpter.getCurrentValue();
+      double temp = rpter.getCurrentValueCN();
       if(temp > 0.0){//LZYADD
         local_cpu_percent.store(temp);
         local_uti_append(temp);
@@ -2300,7 +2302,7 @@ int RDMA_Manager::sock_sync_data(int sock, int xfer_size, char* local_data,
   printf("total bytes: %d\n", xfer_size);
   while (!rc && total_read_bytes < xfer_size) {
     read_bytes = read(sock, remote_data, xfer_size);
-    printf("read byte: %d\n", read_bytes);
+    //printf("read byte: %d\n", read_bytes);
     if (read_bytes > 0)
       total_read_bytes += read_bytes;
     else
