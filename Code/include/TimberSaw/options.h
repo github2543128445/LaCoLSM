@@ -72,15 +72,15 @@ struct TimberSaw_EXPORT Options {
   int max_background_flushes = 4;// 1-1 setup is 8 M-M setup is 8, fixed shard is also 8
   
   int min_local_compactions = 1;
-  int now_local_compactions = 8;
-  int max_local_compactions = 19;
+  int now_local_compactions = 32;
+  int max_local_compactions = 80;
   int now_remote_compactions = 4;
-  int sum_of_local_and_remote_compactions = 20;// sum_of_local_and_remote_compactions = now_local_compactions + now_remote_compactions
+  int sum_of_local_and_remote_compactions = 80;// sum_of_local_and_remote_compactions = now_local_compactions + now_remote_compactions
 
-  int max_compute_subcompactions = 8; // 1-1 setup is 12; M-M  12 as well
+  int max_compute_subcompactions = 32; // 1-1 setup is 12; M-M  12 as well
   
-  int max_memory_compactions = 2;
-  int max_memory_subcompactions = 2; 
+  int max_memory_compactions = 16;
+  int max_memory_subcompactions = 16; 
 
   bool usesubcompaction = true;
   // If true, the database will be created if it is missing.

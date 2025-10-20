@@ -20,4 +20,4 @@ NEXT_NO=$((NO + 1))
 # 更新序号文件
 echo $NEXT_NO > "$SEQ_FILE"
 
-taskset -c 40-41 ./Server 19843 80 0
+taskset -c 40-55 ./Server 19843 80 0

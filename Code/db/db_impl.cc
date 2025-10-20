@@ -2790,7 +2790,7 @@ int DBImpl::CompactionTaskWhereToGo(Compaction* compact){//LZYTODO
       int RCN_best_id=-1;
       for(auto it : RCN_core){
         double RCN_utilization = rdma_mg->server_cpu_percent[it.first]->load();
-        double RCN_v_core = Local_v_core;
+        double RCN_v_core = it.second;
         double RCN_relative_uti = (it.second*RCN_utilization)/(100.0*RCN_v_core);
         double RCN_v_av_core = RCN_v_core *
                                 (RCN_relative_uti > 1.0 ? 0.000001:(1.0 - RCN_relative_uti));
@@ -2833,7 +2833,7 @@ int DBImpl::CompactionTaskWhereToGo(Compaction* compact){//LZYTODO
       int RCN_best_id=-1;
       for(auto it : RCN_core){
         double RCN_utilization = rdma_mg->server_cpu_percent[it.first]->load();
-        double RCN_v_core = Local_v_core;
+        double RCN_v_core = it.second;
         double RCN_relative_uti = (it.second*RCN_utilization)/(100.0*RCN_v_core);
         double RCN_v_av_core = RCN_v_core *
                                 (RCN_relative_uti > 1.0 ? 0.000001:(1.0 - RCN_relative_uti));
@@ -2881,7 +2881,7 @@ int DBImpl::CompactionTaskWhereToGo(Compaction* compact){//LZYTODO
       int RCN_best_id=-1;
       for(auto it : RCN_core){
         double RCN_utilization = rdma_mg->server_cpu_percent[it.first]->load();
-        double RCN_v_core = Local_v_core;
+        double RCN_v_core = it.second;
         double RCN_relative_uti = (it.second*RCN_utilization)/(100.0*RCN_v_core);
         double RCN_v_av_core = RCN_v_core *
                                 (RCN_relative_uti > 1.0 ? 0.000001:(1.0 - RCN_relative_uti));
@@ -2918,7 +2918,7 @@ int DBImpl::CompactionTaskWhereToGo(Compaction* compact){//LZYTODO
       double RCN_most_core=0.0;
       for(auto it : RCN_core){
         double RCN_utilization = rdma_mg->server_cpu_percent[it.first]->load();
-        double RCN_v_core = Local_v_core;
+        double RCN_v_core = it.second;
         double RCN_relative_uti = (it.second*RCN_utilization)/(100.0*RCN_v_core);
         double RCN_v_av_core = RCN_v_core *
                                 (RCN_relative_uti > 1.0 ? 0.000001:(1.0 - RCN_relative_uti));
@@ -3014,7 +3014,7 @@ int DBImpl::CompactionTaskWhereToGoTestv0(Compaction* compact){//LZYTODO
       int RCN_best_id=-1;
       for(auto it : RCN_core){
         double RCN_utilization = rdma_mg->server_cpu_percent[it.first]->load();
-        double RCN_v_core = Local_v_core;
+        double RCN_v_core = it.second;
         double RCN_relative_uti = (it.second*RCN_utilization)/(100.0*RCN_v_core);
         double RCN_v_av_core = RCN_v_core *
                                 (RCN_relative_uti > 1.0 ? 0.000001:(1.0 - RCN_relative_uti));
@@ -3055,7 +3055,7 @@ int DBImpl::CompactionTaskWhereToGoTestv0(Compaction* compact){//LZYTODO
       int RCN_best_id=-1;
       for(auto it : RCN_core){
         double RCN_utilization = rdma_mg->server_cpu_percent[it.first]->load();
-        double RCN_v_core = Local_v_core;
+        double RCN_v_core = it.second;
         double RCN_relative_uti = (it.second*RCN_utilization)/(100.0*RCN_v_core);
         double RCN_v_av_core = RCN_v_core *
                                 (RCN_relative_uti > 1.0 ? 0.000001:(1.0 - RCN_relative_uti));
@@ -3103,7 +3103,7 @@ int DBImpl::CompactionTaskWhereToGoTestv0(Compaction* compact){//LZYTODO
       int RCN_best_id=-1;
       for(auto it : RCN_core){
         double RCN_utilization = rdma_mg->server_cpu_percent[it.first]->load();
-        double RCN_v_core = Local_v_core;
+        double RCN_v_core = it.second;
         double RCN_relative_uti = (it.second*RCN_utilization)/(100.0*RCN_v_core);
         double RCN_v_av_core = RCN_v_core *
                                 (RCN_relative_uti > 1.0 ? 0.000001:(1.0 - RCN_relative_uti));
@@ -3140,7 +3140,7 @@ int DBImpl::CompactionTaskWhereToGoTestv0(Compaction* compact){//LZYTODO
       double RCN_most_core=0.0;
       for(auto it : RCN_core){
         double RCN_utilization = rdma_mg->server_cpu_percent[it.first]->load();
-        double RCN_v_core = Local_v_core;
+        double RCN_v_core = it.second;
         double RCN_relative_uti = (it.second*RCN_utilization)/(100.0*RCN_v_core);
         double RCN_v_av_core = RCN_v_core *
                                 (RCN_relative_uti > 1.0 ? 0.000001:(1.0 - RCN_relative_uti));
@@ -3242,7 +3242,7 @@ int DBImpl::CompactionTaskWhereToGoTestv1(Compaction* compact){//LZYTODO
       // int RCN_best_id=-1;
       // for(auto it : RCN_core){
       //   double RCN_utilization = rdma_mg->server_cpu_percent[it.first]->load();
-      //   double RCN_v_core = Local_v_core;
+      //   double RCN_v_core = it.second;
       //   double RCN_relative_uti = (it.second*RCN_utilization)/(100.0*RCN_v_core);
       //   double RCN_v_av_core = RCN_v_core *
       //                           (RCN_relative_uti > 1.0 ? 0.000001:(1.0 - RCN_relative_uti));
@@ -3291,7 +3291,7 @@ int DBImpl::CompactionTaskWhereToGoTestv1(Compaction* compact){//LZYTODO
       int RCN_best_id=-1;
       for(auto it : RCN_core){
         double RCN_utilization = rdma_mg->server_cpu_percent[it.first]->load();
-        double RCN_v_core = Local_v_core;
+        double RCN_v_core = it.second;
         double RCN_relative_uti = (it.second*RCN_utilization)/(100.0*RCN_v_core);
         double RCN_v_av_core = RCN_v_core *
                                 (RCN_relative_uti > 1.0 ? 0.000001:(1.0 - RCN_relative_uti));
@@ -3339,7 +3339,7 @@ int DBImpl::CompactionTaskWhereToGoTestv1(Compaction* compact){//LZYTODO
       int RCN_best_id=-1;
       for(auto it : RCN_core){
         double RCN_utilization = rdma_mg->server_cpu_percent[it.first]->load();
-        double RCN_v_core = Local_v_core;
+        double RCN_v_core = it.second;
         double RCN_relative_uti = (it.second*RCN_utilization)/(100.0*RCN_v_core);
         double RCN_v_av_core = RCN_v_core *
                                 (RCN_relative_uti > 1.0 ? 0.000001:(1.0 - RCN_relative_uti));
@@ -3376,7 +3376,7 @@ int DBImpl::CompactionTaskWhereToGoTestv1(Compaction* compact){//LZYTODO
       double RCN_most_core=0.0;
       for(auto it : RCN_core){
         double RCN_utilization = rdma_mg->server_cpu_percent[it.first]->load();
-        double RCN_v_core = Local_v_core;
+        double RCN_v_core = it.second;
         double RCN_relative_uti = (it.second*RCN_utilization)/(100.0*RCN_v_core);
         double RCN_v_av_core = RCN_v_core *
                                 (RCN_relative_uti > 1.0 ? 0.000001:(1.0 - RCN_relative_uti));
@@ -3502,7 +3502,7 @@ int DBImpl::CompactionTaskWhereToGoTestv2(Compaction* compact){//该版本直接
       int RCN_best_id=-1;
       for(auto it : RCN_core){
         double RCN_utilization = rdma_mg->server_cpu_percent[it.first]->load();
-        double RCN_v_core = Local_v_core;
+        double RCN_v_core = it.second;
         double RCN_relative_uti = (it.second*RCN_utilization)/(100.0*RCN_v_core);
         double RCN_v_av_core = RCN_v_core *
                                 (RCN_relative_uti > 1.0 ? 0.000001:(1.0 - RCN_relative_uti));
@@ -3552,7 +3552,7 @@ int DBImpl::CompactionTaskWhereToGoTestv2(Compaction* compact){//该版本直接
       // int RCN_best_id=-1;
       // for(auto it : RCN_core){
       //   double RCN_utilization = rdma_mg->server_cpu_percent[it.first]->load();
-      //   double RCN_v_core = Local_v_core;
+      //   double RCN_v_core = it.second;
       //   double RCN_relative_uti = (it.second*RCN_utilization)/(100.0*RCN_v_core);
       //   double RCN_v_av_core = RCN_v_core *
       //                           (RCN_relative_uti > 1.0 ? 0.000001:(1.0 - RCN_relative_uti));
@@ -3590,7 +3590,7 @@ int DBImpl::CompactionTaskWhereToGoTestv2(Compaction* compact){//该版本直接
       // double RCN_most_core=0.0;
       // for(auto it : RCN_core){
       //   double RCN_utilization = rdma_mg->server_cpu_percent[it.first]->load();
-      //   double RCN_v_core = Local_v_core;
+      //   double RCN_v_core = it.second;
       //   double RCN_relative_uti = (it.second*RCN_utilization)/(100.0*RCN_v_core);
       //   double RCN_v_av_core = RCN_v_core *
       //                           (RCN_relative_uti > 1.0 ? 0.000001:(1.0 - RCN_relative_uti));
@@ -3718,7 +3718,7 @@ int DBImpl::CompactionTaskWhereToGoTestv3(Compaction* compact){//配合PickLevel
       int RCN_best_id=-1;
       for(auto it : RCN_core){
         double RCN_utilization = rdma_mg->server_cpu_percent[it.first]->load();
-        double RCN_v_core = Local_v_core;
+        double RCN_v_core = it.second;
         double RCN_relative_uti = (it.second*RCN_utilization)/(100.0*RCN_v_core);
         double RCN_v_av_core = RCN_v_core *
                                 (RCN_relative_uti > 1.0 ? 0.000001:(1.0 - RCN_relative_uti));
@@ -3760,7 +3760,7 @@ int DBImpl::CompactionTaskWhereToGoTestv3(Compaction* compact){//配合PickLevel
       double RCN_most_core=0.0;
       for(auto it : RCN_core){
         double RCN_utilization = rdma_mg->server_cpu_percent[it.first]->load();
-        double RCN_v_core = Local_v_core;
+        double RCN_v_core = it.second;
         double RCN_relative_uti = (it.second*RCN_utilization)/(100.0*RCN_v_core);
         double RCN_v_av_core = RCN_v_core *
                                 (RCN_relative_uti > 1.0 ? 0.000001:(1.0 - RCN_relative_uti));
@@ -3819,8 +3819,9 @@ int DBImpl::CompactionTaskWhereToGoTestv4(Compaction* compact){//结合pickv3，
   double RMN_v_core = RMN_core;
   double Local_utilization = rdma_mg->local_cpu_percent.load();
   double RMN_utilization = rdma_mg->server_cpu_percent.at(shard_target_node_id)->load();
-  printf("CompactionTaskWhereToGo : Local_utilization = %f, RMN_utilization = %f\n", Local_utilization, RMN_utilization);
+
   if (compact->level() == 0){//Level 0
+  printf("CompactionTaskWhereToGo : Local core = %d, utilization = %f, RMN core = %d, utilization = %f\n", Local_core, Local_utilization, RMN_core, RMN_utilization);
     if(options_.usesubcompaction && compact->CanSubCompaction()){ //L0 + Sub
       //Local + L0 + Sub ↓
       //Local_v_core = (double)rdma_mg->local_compute_core_number;//简化模型
@@ -3839,16 +3840,35 @@ int DBImpl::CompactionTaskWhereToGoTestv4(Compaction* compact){//结合pickv3，
                                 (RMN_relative_uti > 1.0 ? 0.000001:(1.0 - RMN_relative_uti));
       double RMN_max_achievable_parallel = options_.max_memory_subcompactions < task_parallelism ? options_.max_memory_subcompactions : task_parallelism;
       double RMN_now_achievable_parallel = RMN_max_achievable_parallel < RMN_v_av_core ? RMN_max_achievable_parallel : RMN_v_av_core;
-
+      
       //RMN_Score = (2.69 * RMN_now_achievable_parallel/RMN_v_core) * RMN_now_achievable_parallel;  //瞎写的
-      RMN_Score = 2.69 * RMN_now_achievable_parallel; 
-      //RMN + L0 + Sub ↑
-      printf("Compaction Task Score 1: Local: %f, RMN: %f, RCN: %f\n", Local_Score, RMN_Score, RCN_Score);
-      if((RMN_Score > Local_Score && (L0_num+L1_num<80) &&(RMN_Score > 10.0 || (RMN_Score > 5.0 && Local_Score < 5.0)))){
-        aim = shard_target_node_id;
+      if(L1_num < RMN_max_achievable_parallel){
+        RMN_Score = 2.69 * RMN_now_achievable_parallel; 
+        //RMN + L0 + Sub ↑
+        printf("Compaction Task Score 1.1: Local: %f, RMN: %f\n", Local_Score, RMN_Score);
+        if(RMN_Score > Local_Score + 1.0){
+          aim = shard_target_node_id;
+        }else{
+          aim = -1;
+        }        
       }else{
-        aim = -1;
+        RMN_Score = 0.75 * RMN_now_achievable_parallel; 
+        //RMN + L0 + Sub ↑
+        printf("Compaction Task Score 1.2: Local: %f, RMN: %f\n", Local_Score, RMN_Score);
+        if(RMN_Score > Local_Score + 1.0){
+          aim = shard_target_node_id;
+        }else{
+          aim = -1;
+        }
       }
+      // RMN_Score = 2.69 * RMN_now_achievable_parallel; 
+      // //RMN + L0 + Sub ↑
+      // printf("Compaction Task Score 1.1: Local: %f, RMN: %f, RCN: %f\n", Local_Score, RMN_Score, RCN_Score);
+      // if( ((RMN_Score > Local_Score+1.0 && L0_num + L1_num <=36.0)||(RMN_Score/Local_Score > 2)) ){
+      //   aim = shard_target_node_id;
+      // }else{
+      //   aim = -1;
+      // }
     }else{//L0 no Sub
       //Local + L0 no Sub ↓
       //Local_v_core = (double)rdma_mg->local_compute_core_number;//简化模型
@@ -3870,7 +3890,7 @@ int DBImpl::CompactionTaskWhereToGoTestv4(Compaction* compact){//结合pickv3，
       // int RCN_best_id=-1;
       // for(auto it : RCN_core){
       //   double RCN_utilization = rdma_mg->server_cpu_percent[it.first]->load();
-      //   double RCN_v_core = Local_v_core;
+      //   double RCN_v_core = it.second;
       //   double RCN_relative_uti = (it.second*RCN_utilization)/(100.0*RCN_v_core);
       //   double RCN_v_av_core = RCN_v_core *
       //                           (RCN_relative_uti > 1.0 ? 0.000001:(1.0 - RCN_relative_uti));
@@ -3890,13 +3910,14 @@ int DBImpl::CompactionTaskWhereToGoTestv4(Compaction* compact){//结合pickv3，
       // }else{
       //   aim = RCN_best_id;
       // }
-      if((RMN_Score/Local_Score > 1.2 && L0_num + L1_num <=36.0 )||(RMN_Score/Local_Score > 2)){
+      if((RMN_Score > Local_Score+1.0 && L0_num + L1_num <=36.0)||(RMN_Score/Local_Score > 2)){
         aim = shard_target_node_id;
       }else{
         aim = -1;
       }
     }
   }else{//Level N
+    printf("CompactionTaskWhereToGo : Local core = %d, utilization = %f\n", Local_core, Local_utilization);
     if(options_.usesubcompaction && compact->CanSubCompaction()){//LN + Sub
       //Local + LN + Sub ↓
       //Local_v_core = (double)rdma_mg->local_compute_core_number;//简化模型
@@ -3923,14 +3944,15 @@ int DBImpl::CompactionTaskWhereToGoTestv4(Compaction* compact){//结合pickv3，
       int RCN_best_id=-1;
       for(auto it : RCN_core){
         double RCN_utilization = rdma_mg->server_cpu_percent[it.first]->load();
-        double RCN_v_core = Local_v_core;
+        double RCN_v_core = it.second;
         double RCN_relative_uti = (it.second*RCN_utilization)/(100.0*RCN_v_core);
         double RCN_v_av_core = RCN_v_core *
                                 (RCN_relative_uti > 1.0 ? 0.000001:(1.0 - RCN_relative_uti));
         double RCN_max_achievable_parallel = options_.max_compute_subcompactions < task_parallelism ? options_.max_compute_subcompactions : task_parallelism;
         double RCN_now_achievable_parallel = RCN_max_achievable_parallel < RCN_v_av_core ? RCN_max_achievable_parallel : RCN_v_av_core;
-        double RCN_temp_Score = 0.7*RCN_now_achievable_parallel;
+        double RCN_temp_Score = 0.75*RCN_now_achievable_parallel;
         if(RCN_temp_Score > RCN_Score){
+          printf("RCN core = %d, v_av_core = %f, utilization = %f, Score = %f\n", it.second, RCN_v_av_core,RCN_relative_uti, RCN_temp_Score);
           RCN_best_id = it.first;
           RCN_Score = RCN_temp_Score;
         }
@@ -3957,11 +3979,12 @@ int DBImpl::CompactionTaskWhereToGoTestv4(Compaction* compact){//结合pickv3，
       double RCN_most_core=0.0;
       for(auto it : RCN_core){
         double RCN_utilization = rdma_mg->server_cpu_percent[it.first]->load();
-        double RCN_v_core = Local_v_core;
+        double RCN_v_core = it.second;
         double RCN_relative_uti = (it.second*RCN_utilization)/(100.0*RCN_v_core);
         double RCN_v_av_core = RCN_v_core *
                                 (RCN_relative_uti > 1.0 ? 0.000001:(1.0 - RCN_relative_uti));
         if(RCN_v_av_core > RCN_most_core){
+          printf("RCN core = %d, v_av_core = %f, utilization = %f\n", it.second, RCN_v_av_core,RCN_relative_uti);
           RCN_best_id = it.first;
           RCN_most_core = RCN_v_av_core;
         }
@@ -3973,7 +3996,7 @@ int DBImpl::CompactionTaskWhereToGoTestv4(Compaction* compact){//结合pickv3，
         return CompactionTaskWhereToGo(compact);
       }
       printf("Compaction Task Score 4 (FreeCore): Local: %f, RCN: %f\n", Local_v_av_core, RCN_most_core);
-      if(Local_v_av_core > 5.0){
+      if(Local_v_av_core >= Local_v_core/3){
         aim = -1;
       }else if( RCN_most_core > Local_v_av_core + 2.0) {
         aim = RCN_best_id;
@@ -4082,7 +4105,7 @@ int DBImpl::CompactionTaskWhereToGoTestv5(Compaction* compact){//配合PickLevel
       // int RCN_best_id=-1;
       // for(auto it : RCN_core){
       //   double RCN_utilization = rdma_mg->server_cpu_percent[it.first]->load();
-      //   double RCN_v_core = Local_v_core;
+      //   double RCN_v_core = it.second;
       //   double RCN_relative_uti = (it.second*RCN_utilization)/(100.0*RCN_v_core);
       //   double RCN_v_av_core = RCN_v_core *
       //                           (RCN_relative_uti > 1.0 ? 0.000001:(1.0 - RCN_relative_uti));
@@ -4130,7 +4153,7 @@ int DBImpl::CompactionTaskWhereToGoTestv5(Compaction* compact){//配合PickLevel
       double RCN_most_core=0.0;
       for(auto it : RCN_core){
         double RCN_utilization = rdma_mg->server_cpu_percent[it.first]->load();
-        double RCN_v_core = Local_v_core;
+        double RCN_v_core = it.second;
         double RCN_relative_uti = (it.second*RCN_utilization)/(100.0*RCN_v_core);
         double RCN_v_av_core = RCN_v_core *
                                 (RCN_relative_uti > 1.0 ? 0.000001:(1.0 - RCN_relative_uti));

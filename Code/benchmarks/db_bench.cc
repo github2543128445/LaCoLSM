@@ -168,6 +168,22 @@ class Duration {
     if (increment <= 0) increment = 1;    // avoid Done(0) and infinite loops
     ops_ += increment;
 
+    // if (max_seconds_) {
+    //   // Recheck every appx 1000 ops (exact iff increment is factor of 1000)
+    //   auto granularity = FLAGS_ops_between_duration_checks;
+    //   if ((ops_ / granularity) != ((ops_ - increment) / granularity)) {
+    //     uint64_t now = g_env->NowMicros();
+    //     return ((now - start_at_) / 1000000) >= max_seconds_;
+    //   } else {
+    //     return false;
+    //   }
+    // } else {
+    //   return ops_ > max_ops_;
+    // }
+    //LZYCHA ↓
+    if(ops_ > max_ops_){
+      return true;
+    }
     if (max_seconds_) {
       // Recheck every appx 1000 ops (exact iff increment is factor of 1000)
       auto granularity = FLAGS_ops_between_duration_checks;
@@ -177,9 +193,8 @@ class Duration {
       } else {
         return false;
       }
-    } else {
-      return ops_ > max_ops_;
     }
+    return false;
   }
 
  private:
@@ -1221,7 +1236,12 @@ class Benchmark {
 //    KeyBuffer key;
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
-    for (int i = 0; i < num_; i += entries_per_batch_) {//每个线程都会跑num个 -LZY
+    //for (int i = 0; i < num_; i += entries_per_batch_) {//LZYCHA
+    Duration duration(FLAGS_duration, FLAGS_num);
+    int i = 0;
+    while (!duration.Done(1) && i<num_) {
+      i+=entries_per_batch_;
+      //每个线程都会跑num个 -LZY
       batch.Clear();
       for (int j = 0; j < entries_per_batch_; j++) {
         //The key range should be adjustable.
