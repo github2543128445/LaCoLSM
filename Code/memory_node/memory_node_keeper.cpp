@@ -591,6 +591,8 @@ Status Memory_Node_Keeper::DoCompactionWork(CompactionState* compact,std::string
 //    compact->smallest_snapshot = snapshots_.oldest()->sequence_number();
 //  }
   int cases = compact->compaction->WhatCase(usesubcompaction);
+  int num_of_file = compact->compaction->sum_num_input_files();
+  int sumcore = rdma_mg->rpter.numa_bind_core_num;
   auto start_time = std::chrono::steady_clock::now();
   Iterator* input = versions_->MakeInputIteratorMemoryServer(compact->compaction);
 
@@ -599,7 +601,9 @@ Status Memory_Node_Keeper::DoCompactionWork(CompactionState* compact,std::string
 
   input->SeekToFirst();
   auto end_time = std::chrono::steady_clock::now();
-  C1_detail_append(std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count(), cases, 1);
+  int cost_time = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count();
+  C1_append(num_of_file, sumcore*rdma_mg->rpter.current_percent, cost_time, cases, 1);
+  C1_detail_append(cost_time, cases, 1);
   unsigned long long S3_cost = 0;
   start_time = std::chrono::steady_clock::now();
 #ifndef NDEBUG
@@ -734,7 +738,10 @@ printf("For compaction, Total number of key touched is %d, KV left is %d\n", num
   delete input;
   input = nullptr;
   end_time = std::chrono::steady_clock::now();
-  C1_detail_append(std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count()-S3_cost, cases, 2);
+  cost_time = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count();
+  C1_append(num_of_file, sumcore*rdma_mg->rpter.current_percent, cost_time-S3_cost, cases, 2);
+  C1_append(num_of_file, sumcore*rdma_mg->rpter.current_percent, S3_cost, cases, 3);
+  C1_detail_append(cost_time-S3_cost, cases, 2);
   C1_detail_append(S3_cost, cases, 3);
 
 
@@ -1064,7 +1071,11 @@ void Memory_Node_Keeper::ProcessKeyValueCompactionPlusCases(SubcompactionState* 
   auto start_time = std::chrono::steady_clock::now();
   Iterator* input = versions_->MakeInputIteratorMemoryServer(sub_compact->compaction);
   auto end_time = std::chrono::steady_clock::now();
-  C1_detail_append(std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count(), cases, 1);
+  int num_of_file = sub_compact->compaction->sum_num_input_files();
+  int sumcore = rdma_mg->rpter.numa_bind_core_num;
+  int cost_time = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count();
+  C1_append(num_of_file, sumcore*rdma_mg->rpter.current_percent, cost_time, cases, 1);
+  C1_detail_append(cost_time, cases, 1);
   // Release mutex while we're actually doing the compaction work
   //  undefine_mutex.Unlock();
   start_time = std::chrono::steady_clock::now();
@@ -1235,7 +1246,10 @@ printf("For compaction, Total number of key touched is %d, KV left is %d\n", num
   }
   delete input;
   end_time = std::chrono::steady_clock::now();
-  C1_detail_append(std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count(), cases, 2);
+  cost_time = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count();
+  C1_append(num_of_file, sumcore*rdma_mg->rpter.current_percent, cost_time-S3_cost, cases, 2);
+  C1_append(num_of_file, sumcore*rdma_mg->rpter.current_percent, S3_cost, cases, 3);
+  C1_detail_append(cost_time-S3_cost, cases, 2);
   C1_detail_append(S3_cost, cases, 3);
   //  input = nullptr;
 }
@@ -2415,7 +2429,11 @@ printf("server_sock_connect : servername %s. port %d\n",servername,port);
     DEBUG_arg("Compaction decoded, input file level is %d \n", c.level());
     auto end_time = std::chrono::steady_clock::now();
     int cases = c.WhatCase(usesubcompaction);
-    C1_detail_append(std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count(), cases, 0);
+    int num_of_file = c.sum_num_input_files();
+    int sumcore = rdma_mg->rpter.numa_bind_core_num;
+    int cost_time = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count();
+    C1_append(num_of_file, sumcore*rdma_mg->rpter.current_percent, cost_time, cases, 0);
+    C1_detail_append(cost_time, cases, 0);
     CompactionState* compact = new CompactionState(&c);
     if (usesubcompaction && c.CanSubCompaction()){ 
       status = DoCompactionWorkWithSubcompaction(compact, client_ip);//返回
@@ -2426,7 +2444,7 @@ printf("server_sock_connect : servername %s. port %d\n",servername,port);
     start_time = std::chrono::steady_clock::now();
     InstallCompactionResultsToComputePreparation(compact);
         //TODO:Send back the new created sstables and wait for another reply.
-    std::string serilized_ve;
+    std::string serilized_ve; 
 #ifndef NDEBUG
     auto edit_files_vec = compact->compaction->edit()->GetNewFiles();
     for (auto iter : *edit_files_vec) {
@@ -2555,7 +2573,9 @@ printf("server_sock_connect : servername %s. port %d\n",servername,port);
     delete compact;
     delete (Arg_for_handler*) arg;
     end_time = std::chrono::steady_clock::now();
-    C1_detail_append(std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count(), cases, 4);
+    cost_time = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count();
+    C1_append(num_of_file, sumcore*rdma_mg->rpter.current_percent, cost_time, cases, 4);
+    C1_detail_append(cost_time, cases, 4);
   }
   // THis funciton is deprecated now
   void Memory_Node_Keeper::qp_reset_handler(RDMA_Request* request,

@@ -554,8 +554,8 @@ class Compaction {
         return 2;
       }else{//LN no Sub
       return 3;
+      }
     }
-  }
   }
   int level() const { return level_; }
   void SetLevel(int level) { level_ = level; }
@@ -568,6 +568,7 @@ class Compaction {
   }
   // "which" must be either 0 or 1
   int num_input_files(int which) const { return inputs_[which].size(); }
+  int sum_num_input_files() const{return num_input_files(0)+num_input_files(1);}
   uint64_t Total_data_size() const {
     uint64_t total_size = 0;
     for (int i = 0; i < 2; ++i) {

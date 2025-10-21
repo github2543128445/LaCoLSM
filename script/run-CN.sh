@@ -2,13 +2,15 @@
 cd ../build
 make Server db_bench TimberSaw
 
-if [ $# -ne 3 ]; then
-    echo "Usage: $0 <node_id> <thread> <ops_per_thread>"
+if [ $# -ne 4 ]; then
+    echo "Usage: $0 <node_id> <thread> <ops_per_thread> <duration>"
     exit 1
 fi
 node_id=$1
 thread=$2
-ops_per_thread=$3
+ops_per_thread=$3  
+duration=$4
+  
 
 # 清理临时文件
 if [ -f "temp.txt" ]; then
@@ -46,6 +48,7 @@ taskset -c 40-71 ./db_bench --benchmarks=fillrandom \
            --threads=$thread \
            --value_size=400 \
            --num=$ops_per_thread \
+           --duration=$duration \
            --bloom_bits=10 \
            --compute_node_id=$node_id > temp.txt 2>&1 &
 db_bench_pid=$!

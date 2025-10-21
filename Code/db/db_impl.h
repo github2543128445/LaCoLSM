@@ -13,6 +13,9 @@
 #include <deque>
 #include <set>
 #include <string>
+#include <tuple>
+#include <fstream>
+#include <iostream>
 
 #include "TimberSaw/db.h"
 #include "TimberSaw/env.h"
@@ -115,7 +118,87 @@ class DBImpl : public DB{
   std::deque<int> distribute_lat;
   std::mutex distribute_lat_mtx;
 
-  std::deque<int> C0_s[4][4];//4个stage:分割Sub，读Table，处理，写Table
+  std::deque<std::tuple<int,double,int>> C0_[4][3];//  [case][stage] -> (filenum,used_core,time)   3个stage:读Table，处理，写Table
+  std::mutex C0_mutex;
+  void C0_append(int filenum,double av_core,int time,int cases,int stage){
+    std::lock_guard<std::mutex> lock(C0_mutex);
+    C0_[cases][stage].push_back(std::make_tuple(filenum,av_core,time));
+  }
+  void print_C0_to_file(){
+    std::lock_guard<std::mutex> lock(C0_mutex); // 确保遍历期间数据不被修改
+
+    // 遍历所有case（0~3）和stage（0~2）
+    for (int cases = 0; cases < 4; ++cases) {
+      for (int stage = 0; stage < 3; ++stage) {
+        // 构造文件名：C0_[case]_[stage].csv
+        std::string filename = "../C0_" + std::to_string(cases) + "_" + std::to_string(stage) + ".csv";
+
+        // 打开文件（若存在则覆盖，用trunc模式；若需追加可改为app）
+        std::ofstream csv_file(filename, std::ios::app);
+        if (!csv_file.is_open()) {
+            std::cerr << "Error: 无法打开文件 " << filename << std::endl;
+            continue; // 跳过当前文件，处理下一个
+        }
+        // 遍历当前[case][stage]对应的deque，写入每一行数据
+        for (const auto& elem : C0_[cases][stage]) {
+            int filenum = std::get<0>(elem);
+            double av_core = static_cast<double>(env_->rdma_mg->rpter.numa_bind_core_num) - std::get<1>(elem) / 100.0;
+            int time = std::get<2>(elem);
+
+            // 计算speed（处理time=0的情况）
+            double speed = (filenum != 0) ? time/static_cast<double>(filenum) : 0.0;
+
+            // 写入一行数据
+            csv_file << filenum << "," << av_core << "," << speed << std::endl;
+        }
+
+        // 文件会在ofstream析构时自动关闭
+        std::cout << "已导出 " << filename << "，共" << C0_[cases][stage].size() << "条数据" << std::endl;
+      }
+    }
+  }
+  std::deque<std::tuple<int,double,int>> C2_[4][5];//  [case][stage] -> (filenum,used_core,time)   5个stage:解析任务，读table，排序，写table，整理并发回元数据改动
+  std::mutex C2_mutex;
+  void C2_append(int filenum,double av_core,int time,int cases,int stage){
+    std::lock_guard<std::mutex> lock(C2_mutex);
+    C2_[cases][stage].push_back(std::make_tuple(filenum,av_core,time));
+  }
+  void print_C2_to_file(){
+    std::lock_guard<std::mutex> lock(C2_mutex); // 确保遍历期间数据不被修改
+
+    // 遍历所有case（0~3）和stage（0~2）
+    for (int cases = 0; cases < 4; ++cases) {
+      for (int stage = 0; stage < 5; ++stage) {
+        // 构造文件名：C2_[case]_[stage].csv
+        std::string filename = "../C2_" + std::to_string(cases) + "_" + std::to_string(stage) + ".csv";  
+
+        // 打开文件（若存在则覆盖，用trunc模式；若需追加可改为app）
+        std::ofstream csv_file(filename, std::ios::app);
+        if (!csv_file.is_open()) {
+            std::cerr << "Error: 无法打开文件 " << filename << std::endl;
+            continue; // 跳过当前文件，处理下一个
+        }
+        // 遍历当前[case][stage]对应的deque，写入每一行数据
+        for (const auto& elem : C2_[cases][stage]) {
+            int filenum = std::get<0>(elem);
+            double av_core = static_cast<double>(env_->rdma_mg->rpter.numa_bind_core_num) - std::get<1>(elem) / 100.0;
+            int time = std::get<2>(elem);
+
+            // 计算speed（处理time=0的情况）
+            double speed = (filenum != 0) ? time/static_cast<double>(filenum) : 0.0;
+
+            // 写入一行数据
+            csv_file << filenum << "," << av_core << "," << speed << std::endl;
+        }
+
+        // 文件会在ofstream析构时自动关闭
+        std::cout << "已导出 " << filename << "，共" << C2_[cases][stage].size() << "条数据" << std::endl;
+      }
+    }
+  }
+
+  
+  std::deque<int> C0_s[4][3];//4个stage:读Table，处理，写Table
   std::mutex C0_s_mutex;
   void C0_append(int value,int cases,int stage){
     std::lock_guard<std::mutex> lock(C0_s_mutex);
@@ -128,7 +211,7 @@ class DBImpl : public DB{
     std::lock_guard<std::mutex> lock(C1_s_mutex);
     C1_s[cases][stage].push_back(value);
   }
-
+  
 
   std::deque<int> C2_s[4][3];//3个stage:发送，等待处理，接收
   std::mutex C2_s_mutex;
@@ -222,8 +305,9 @@ class DBImpl : public DB{
     #if NEARDATACOMPACTION == 0
     printf("///Compactor is 0///\n");
     printf("---- Show C0 Compaction Cost ----\n");
+    print_C0_to_file();
     for(int i=0;i<4;i++){
-      for(int j=0;j<4;j++){
+      for(int j=0;j<3;j++){
         printf("For Case %d Stage %d: ",i+1,j+1);
         double avg=0.0,p1=0.0,p5=0.0,p10=0.0,p50=0.0,p90=0.0,p95=0.0,p99=0.0;
         int q_size = C0_s[i][j].size();
@@ -274,6 +358,7 @@ class DBImpl : public DB{
     #if NEARDATACOMPACTION == 2
     printf("///Compactor is 2///\n");
     printf("---- Show C2 Compaction Cost ----\n");
+    print_C2_to_file();
     for(int i=0;i<4;i++){
       for(int j=0;j<3;j++){
         printf("For Case %d Stage %d: ",i+1,j+1);

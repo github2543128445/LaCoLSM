@@ -7,6 +7,9 @@
 
 
 #include <queue>
+#include <tuple>
+#include <fstream>
+#include <iostream>
 //#include <fcntl.h>
 #include "util/rdma.h"
 #include "util/env_posix.h"
@@ -151,6 +154,49 @@ class Memory_Node_Keeper {
 
 
   //LZYADD ↓
+  std::deque<std::tuple<int,double,int>> C1_[4][5]; //  [case][stage] -> (filenum,av_core,time)   5个stage:解析任务，读table，排序，写table，整理并发回元数据改动
+  std::mutex C1_mutex;
+  void C1_append(int filenum,double av_core,int time,int cases,int stage){
+    std::lock_guard<std::mutex> lock(C1_mutex);
+    C1_[cases][stage].push_back(std::make_tuple(filenum,av_core,time));
+  }
+  void print_C1_to_file(){
+    std::lock_guard<std::mutex> lock(C1_mutex); // 确保遍历期间数据不被修改
+
+    // 遍历所有case（0~3）和stage（0~4）
+    for (int cases = 0; cases < 4; ++cases) {
+      for (int stage = 0; stage < 5; ++stage) {
+        // 构造文件名：C1_[case]_[stage].csv
+        std::string filename = "../C1_" + std::to_string(cases) + "_" + std::to_string(stage) + ".csv";  
+
+        // 打开文件（若存在则覆盖，用trunc模式；若需追加可改为app）
+        std::ofstream csv_file(filename, std::ios::app);
+        if (!csv_file.is_open()) {
+            std::cerr << "Error: 无法打开文件 " << filename << std::endl;
+            continue; // 跳过当前文件，处理下一个
+        }
+        // 遍历当前[case][stage]对应的deque，写入每一行数据
+        for (const auto& elem : C1_[cases][stage]) {
+            int filenum = std::get<0>(elem);
+            double av_core = static_cast<double>(rdma_mg->rpter.numa_bind_core_num) - std::get<1>(elem) / 100.0;
+            int time = std::get<2>(elem);
+
+            // 计算speed（处理time=0的情况）
+            double speed = (filenum != 0) ? time/static_cast<double>(filenum) : 0.0;
+
+            // 写入一行数据
+            csv_file << filenum << "," << av_core << "," << speed << std::endl;
+        }
+
+        // 文件会在ofstream析构时自动关闭
+        std::cout << "已导出 " << filename << "，共" << C1_[cases][stage].size() << "条数据" << std::endl;
+      }
+    }
+  }
+
+
+
+
   std::deque<int> C1_detail[4][5];//实际执行的5个stage：解析任务，读table，排序，写table，整理并发回元数据改动
   std::mutex C1_detail_mutex;
   void C1_detail_append(int value,int cases,int stage){
@@ -163,6 +209,7 @@ class Memory_Node_Keeper {
     #endif
     #if NEARDATACOMPACTION == 1
     printf("///Compactor is 1///\n");
+    print_C1_to_file();
     for(int i=0;i<4;i++){
       for(int j=0;j<5;j++){
         printf("Detail Work Case %d Stage %d: ",i+1,j+1);
@@ -189,6 +236,7 @@ class Memory_Node_Keeper {
     #endif
     #if NEARDATACOMPACTION == 2
     printf("///Compactor is 2///\n");
+    print_C1_to_file();
     for(int i=0;i<4;i++){
       for(int j=0;j<5;j++){
         printf("Detail Work Case %d Stage %d: ",i+1,j+1);
