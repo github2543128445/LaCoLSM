@@ -11,6 +11,7 @@ cmake-build-release/
 release/
 debug/
 out/
+pic/
 /cmake-build-debug/include/
 myignorefile
 /sequence.txt

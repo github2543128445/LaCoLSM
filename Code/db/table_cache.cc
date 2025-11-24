@@ -151,11 +151,11 @@ Status TableCache::FindTable(
 #endif
       }
       auto end_time = std::chrono::steady_clock::now();
-      printf("TableCache::FindTable miss, cost time is %lu us\n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+      //printf("TableCache::FindTable miss, cost time is %lu us\n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
     }else{
       //printf("FindTable: Cache Hit2\n");//锁竞争
       auto end_time = std::chrono::steady_clock::now();
-      printf("TableCache::FindTable hit2, cost time is %lu us\n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+      //printf("TableCache::FindTable hit2, cost time is %lu us\n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
     }
     hash_mtx[hash_value].unlock();
   }else{
@@ -171,10 +171,10 @@ Status TableCache::FindTable_MemorySide(
     Table_Memory_Side*& table) {
 {
   Status s;
-  auto FindTable_start_time = std::chrono::steady_clock::now();
+  //auto FindTable_start_time = std::chrono::steady_clock::now();
   s = Table_Memory_Side::Open(options_, &table, Remote_memtable_meta);
-  auto FindTable_end_time = std::chrono::steady_clock::now();
-  printf("TableCache::FindTable_MemorySide: Table_Memory_Side::Open cost time is %lu us\n", std::chrono::duration_cast<std::chrono::microseconds>(FindTable_end_time - FindTable_start_time).count());
+  //auto FindTable_end_time = std::chrono::steady_clock::now();
+  //printf("TableCache::FindTable_MemorySide: Table_Memory_Side::Open cost time is %lu us\n", std::chrono::duration_cast<std::chrono::microseconds>(FindTable_end_time - FindTable_start_time).count());
 //      DEBUG_arg("file number inserted to the table_cache is %lu ", Remote_memtable_meta.get()->number);
 //      DEBUG_arg("Remote_memtable_meta pointer is %p\n", Remote_memtable_meta.get());
   return s;

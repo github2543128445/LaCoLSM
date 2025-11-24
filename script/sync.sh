@@ -23,6 +23,7 @@ for node in "${nodes[@]}"; do
       --exclude=data/ \
       --exclude=script/run-MN.sh \
       --exclude=*.csv \
+      --exclude=pic/ \
       ~/louzy/LaCoLSM/ \
       skv-node$node:~/louzy/LaCoLSM
   fi

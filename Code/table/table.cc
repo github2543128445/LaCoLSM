@@ -39,9 +39,13 @@ Status Table::Open(const Options& options, Table** table,
     opt.verify_checksums = true;
   }
   ibv_mr* remote_mr = Remote_table_meta->remote_dataindex_mrs.begin()->second;
+  // auto start_time = std::chrono::steady_clock::now();
   s = ReadDataIndexBlock(
       remote_mr, opt,
       &index_block_contents, Remote_table_meta->shard_target_node_id);
+  // auto end_time = std::chrono::steady_clock::now();
+  // printf("Table::Open cost 1 time = %zuus\n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+  // start_time = std::chrono::steady_clock::now();
   // auto end_time = std::chrono::steady_clock::now();
   // printf("Table::Open 1 cost time is %lu us \n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
   // start_time = std::chrono::steady_clock::now(); 
@@ -56,6 +60,9 @@ Status Table::Open(const Options& options, Table** table,
       index_block = new Block(index_block_contents, IndexBlock);
 
     }
+    // end_time = std::chrono::steady_clock::now();
+    // printf("Table::Open cost 2 time = %zuus\n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+    // start_time = std::chrono::steady_clock::now();
     Rep* rep = new Table::Rep(options);
     //rep->options = options;
     //rep->file = file;
@@ -69,6 +76,9 @@ Status Table::Open(const Options& options, Table** table,
 
     *table = new Table(rep);
     (*table)->ReadFilter();
+    // end_time = std::chrono::steady_clock::now();
+    // printf("Table::Open cost 3 time = %zuus\n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+    // start_time = std::chrono::steady_clock::now();
     //(*table)->ReadMeta(footer);
   }else{
     assert(false);

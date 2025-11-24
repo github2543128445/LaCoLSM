@@ -1527,7 +1527,7 @@ Status DBImpl::DoRemoteCompactionWork3(CompactionState* compact,uint8_t target_n
         auto S3_end_time = std::chrono::steady_clock::now();
         auto S3_cost_duration = std::chrono::duration_cast<std::chrono::microseconds>(S3_end_time - S3_start_time).count();
         S3_cost += S3_cost_duration;
-        printf("FinishCompactionOutputFile: NormalCompaction, cost %lu\n",S3_cost_duration);
+        //printf("FinishCompactionOutputFile: NormalCompaction, cost %lu\n",S3_cost_duration);
         if (!status.ok()) {
           printf("DoRemoteCompactionWork: while-FinishOneFile ERROR\n");
           break;
@@ -1553,7 +1553,7 @@ Status DBImpl::DoRemoteCompactionWork3(CompactionState* compact,uint8_t target_n
     auto S3_end_time = std::chrono::steady_clock::now();
     auto S3_cost_duration = std::chrono::duration_cast<std::chrono::microseconds>(S3_end_time - S3_start_time).count();
     S3_cost += S3_cost_duration;
-    printf("FinishCompactionOutputFile: NormalCompaction, cost %lu\n",S3_cost_duration);
+    //printf("FinishCompactionOutputFile: NormalCompaction, cost %lu\n",S3_cost_duration);
     //printf("DoRemoteCompactionWork: while-FinishOneFile\n");
     //fileout<<"\n\n!!!!FinishOneFile!!!!\n\n";
 
@@ -4802,7 +4802,7 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact, Iterator* in
 
   const uint64_t output_number = compact->current_output()->number;
   assert(output_number != 0);
-  auto start_time = std::chrono::steady_clock::now();
+  //auto start_time = std::chrono::steady_clock::now();
   // Check for iterator errors
   Status s = input->status();
   const uint64_t current_entries = compact->builder->NumEntries();
@@ -4812,15 +4812,15 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact, Iterator* in
     printf("iterator Error!!!!!!!!!!!, Error: %s\n", s.ToString().c_str());
     compact->builder->Abandon();
   }
-  auto end_time = std::chrono::steady_clock::now();
-  printf("FinishCompactionOutputFile time 1 cost: %lu us \n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
-  start_time = std::chrono::steady_clock::now();
+  //auto end_time = std::chrono::steady_clock::now();
+  //printf("FinishCompactionOutputFile time 1 cost: %lu us \n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+  //start_time = std::chrono::steady_clock::now();
   compact->builder->get_datablocks_map(compact->current_output()->remote_data_mrs);//数据块  将builder的赋值给output的
   compact->builder->get_dataindexblocks_map(compact->current_output()->remote_dataindex_mrs);//索引块
   compact->builder->get_filter_map(compact->current_output()->remote_filter_mrs);//bloom快
-  end_time = std::chrono::steady_clock::now();
-  printf("FinishCompactionOutputFile time 2 cost: %lu us \n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
-  start_time = std::chrono::steady_clock::now();
+  //end_time = std::chrono::steady_clock::now();
+  //printf("FinishCompactionOutputFile time 2 cost: %lu us \n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+  //start_time = std::chrono::steady_clock::now();
 #ifndef NDEBUG
   uint64_t file_size = 0;
   for(auto iter : compact->current_output()->remote_data_mrs){
@@ -4861,8 +4861,8 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact, Iterator* in
           (unsigned long long)current_bytes);
     }
   }
-  end_time = std::chrono::steady_clock::now();
-  printf("FinishCompactionOutputFile time 3 cost: %lu us \n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+  //end_time = std::chrono::steady_clock::now();
+  //printf("FinishCompactionOutputFile time 3 cost: %lu us \n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
   return s;
 }
 Status DBImpl::InstallCompactionResultsFor(CompactionState* compact,uint8_t target_node_id){ //类似Memory_Node_Keeper::InstallCompactionResultsToComputePreparation LZYADD
@@ -7060,7 +7060,14 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
 #ifndef NDEBUG
   printf("first key is %s", input->key().ToString().c_str());
 #endif
+  unsigned long long num_of_KV = 0;
+  unsigned long long num_of_OutPutSST = 0;
+  unsigned long long add_new_data_ns = 0;
+  unsigned long long input_next_ns = 0;
+  auto ns_start_time = std::chrono::steady_clock::now();
+  auto ns_end_time = std::chrono::steady_clock::now();
   while (input->Valid() && !shutting_down_.load(std::memory_order_acquire)) {
+    num_of_KV++;
     key = input->key().ToString();
     assert(input->Valid());
     assert(*key.data() == 0);
@@ -7133,11 +7140,14 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
 #ifndef NDEBUG
       Not_drop_counter++;
 #endif
+      ns_start_time = std::chrono::steady_clock::now();
       compact->builder->Add(key, input->value());
+      ns_end_time = std::chrono::steady_clock::now();
+      add_new_data_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(ns_end_time - ns_start_time).count();
       //assert(key.data()[0] == '0');
       //Close output file if it is big enough
-
       if (compact->builder->FileSize() >=compact->compaction->MaxOutputFileSize()) { //完成了一个Compaction output文件
+        num_of_OutPutSST++;
         //assert(key.data()[0] == '0');
         compact->current_output()->largest.DecodeFrom(key);
         assert(*compact->current_output()->largest.user_key().data() == 0);
@@ -7147,7 +7157,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         auto S3_end_time = std::chrono::steady_clock::now();
         auto S3_cost_duration = std::chrono::duration_cast<std::chrono::microseconds>(S3_end_time - S3_start_time).count();
         S3_cost += S3_cost_duration;
-        printf("FinishCompactionOutputFile: NormalCompaction, cost %lu\n", S3_cost_duration);
+        //printf("FinishCompactionOutputFile: NormalCompaction, cost %lu\n", S3_cost_duration);
         if (!status.ok()) {
           break;
         }
@@ -7162,7 +7172,10 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
     // the key will be corrupted when assigning it to "largest" in the table metadata.
     // Or I can make the cahched buffer always a full block size so the deallocaiton is long enogu
     // to avoid the bug
+    ns_start_time = std::chrono::steady_clock::now();
     input->Next();
+    ns_end_time = std::chrono::steady_clock::now();
+    input_next_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(ns_end_time - ns_start_time).count();
 //    if(*key.data() != 0){
 //      printf("break here");
 //    }
@@ -7183,6 +7196,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
     status = Status::IOError("Deleting DB during compaction");
   }
   if (status.ok() && compact->builder != nullptr) {//LZY:收尾
+    num_of_KV++;
 //    assert(key.data()[0] == '0');
     compact->current_output()->largest.DecodeFrom(key);
     // The assertion always failed below. need to understand why.
@@ -7193,7 +7207,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
     auto S3_end_time = std::chrono::steady_clock::now();
     auto S3_cost_duration = std::chrono::duration_cast<std::chrono::microseconds>(S3_end_time - S3_start_time).count();
     S3_cost += S3_cost_duration;
-    printf("FinishCompactionOutputFile: NormalCompaction, cost %lu\n", S3_cost_duration);
+    //printf("FinishCompactionOutputFile: NormalCompaction, cost %lu\n", S3_cost_duration);
   }
   if (status.ok()) {
     status = input->status();
@@ -7220,6 +7234,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   C0_append(num_of_file, num_of_core*env_->rdma_mg->rpter.current_percent, S3_cost, cases, 2);
   C0_append(cost_time - S3_cost, cases, 1);//处理耗时
   C0_append(S3_cost, cases, 2);//写回耗时
+  printf("DBImpl::DoCompactionWork: num_of_KV %llu, num_of_OutPutSST %llu, add_new_data_us %llu, input_next_us %llu, finish block us %llu, other calculate us %llu\n", num_of_KV, num_of_OutPutSST, add_new_data_ns/1000, input_next_ns/1000, S3_cost,cost_time-S3_cost-input_next_ns/1000-add_new_data_ns/1000);
   if (status.ok()) {
     std::unique_lock<std::mutex> l(superversion_memlist_mtx, std::defer_lock);
     status = InstallCompactionResultsSelf(compact, &l);//LZY:删除老文件，添加新文件的meta，生成真实的Meta数据

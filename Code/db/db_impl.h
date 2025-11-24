@@ -115,6 +115,61 @@ class DBImpl : public DB{
   std::mutex get_lat_mtx;
   std::deque<int> get_lat;
 
+  void print_insert_lat_to_file() {
+      std::lock_guard<std::mutex> lock(insert_lat_mtx);
+      std::ofstream insert_lat_file("../insert_lat.csv");
+      if (!insert_lat_file.is_open()) {
+          std::cerr << "Error: 无法打开文件 insert_lat.csv" << std::endl;
+          return;
+      }
+
+      // 处理未排序数据：每100000个有效数据计算一次平均值并写入
+      int aim = 300 > insert_lat.size() ? insert_lat.size() : 300;
+      int gap = insert_lat.size()/aim;
+      int cnt = 0;
+      double sum = 0.0;  // 用于累计数据和，避免整数溢出
+      for (auto& item : insert_lat) {
+          if (item > 0 && item < 100000) {  // 筛选有效数据
+              sum += item;
+              cnt++;
+              if (cnt == gap) {  // 累计到100000个有效数据
+                  double avg = sum / cnt;  // 计算平均值
+                  insert_lat_file << avg << std::endl;  // 写入平均值
+                  sum = 0.0;  // 重置累计器
+                  cnt = 0;
+              }
+          }
+      }
+      insert_lat_file.close();
+
+      // 排序数据
+      std::sort(insert_lat.begin(), insert_lat.end());
+      std::ofstream insert_lat_file_sort("../insert_lat_sort.csv");
+      if (!insert_lat_file_sort.is_open()) {
+          std::cerr << "Error: 无法打开文件 insert_lat_sort.csv" << std::endl;
+          return;
+      }
+
+      // 处理排序后数据：每1000个有效数据计算一次平均值并写入
+      aim = 10000 > insert_lat.size() ? insert_lat.size() : 10000;
+      gap = insert_lat.size()/aim;
+      cnt = 0;
+      sum = 0.0;
+      for (auto& item : insert_lat) {
+          if (item > 0 && item < 100000) {  // 同样筛选有效数据
+              sum += item;
+              cnt++;
+              if (cnt == gap) {  // 累计到1000个有效数据
+                  double avg = sum / cnt;  // 计算平均值
+                  insert_lat_file_sort << avg << std::endl;  // 写入平均值
+                  sum = 0.0;  // 重置累计器
+                  cnt = 0;
+              }
+          }
+      }
+      insert_lat_file_sort.close();
+  }
+
   std::deque<int> distribute_lat;
   std::mutex distribute_lat_mtx;
 
@@ -131,7 +186,7 @@ class DBImpl : public DB{
     for (int cases = 0; cases < 4; ++cases) {
       for (int stage = 0; stage < 3; ++stage) {
         // 构造文件名：C0_[case]_[stage].csv
-        std::string filename = "../C0_" + std::to_string(cases) + "_" + std::to_string(stage) + ".csv";
+        std::string filename = "../C0_" + std::to_string(cases+1) + "_" + std::to_string(stage+1) + ".csv";
 
         // 打开文件（若存在则覆盖，用trunc模式；若需追加可改为app）
         std::ofstream csv_file(filename, std::ios::app);
@@ -142,7 +197,7 @@ class DBImpl : public DB{
         // 遍历当前[case][stage]对应的deque，写入每一行数据
         for (const auto& elem : C0_[cases][stage]) {
             int filenum = std::get<0>(elem);
-            double av_core = static_cast<double>(env_->rdma_mg->rpter.numa_bind_core_num) - std::get<1>(elem) / 100.0;
+            double av_core = static_cast<double>(env_->rdma_mg->rpter.numa_bind_core_num) - (std::get<1>(elem) / 100.0);
             int time = std::get<2>(elem);
 
             // 计算speed（处理time=0的情况）
@@ -170,7 +225,7 @@ class DBImpl : public DB{
     for (int cases = 0; cases < 4; ++cases) {
       for (int stage = 0; stage < 5; ++stage) {
         // 构造文件名：C2_[case]_[stage].csv
-        std::string filename = "../C2_" + std::to_string(cases) + "_" + std::to_string(stage) + ".csv";  
+        std::string filename = "../C2_" + std::to_string(cases+1) + "_" + std::to_string(stage+1) + ".csv";  
 
         // 打开文件（若存在则覆盖，用trunc模式；若需追加可改为app）
         std::ofstream csv_file(filename, std::ios::app);
@@ -423,6 +478,7 @@ class DBImpl : public DB{
     #ifdef CHECK_INSERT_LAT 
     printf("---- Show OPT Latancy ----\n"); 
     if(!insert_lat.empty()){
+      print_insert_lat_to_file();
       std::sort(insert_lat.begin(),insert_lat.end());
       double avg = 0.0;
       int q_size = insert_lat.size();

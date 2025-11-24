@@ -61,7 +61,7 @@ Status Table_Memory_Side::Open(const Options& options, Table_Memory_Side** table
 //   printf("Table_Memory_Side::Open 1 cost time is %lu us \n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
 // //  ReadOptions opt;
 //   start_time = std::chrono::steady_clock::now(); 
-#if NEARDATACOMPACTION == 2
+#if NEARDATACOMPACTION == 1
   if (options.paranoid_checks) //LZYCHA，原本是无条件进行
 #endif
   {

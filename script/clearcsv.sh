@@ -67,4 +67,15 @@ for NODE_ID in "${ALL_NODES[@]}"; do
     echo "  已尝试删除 $NODE_HOST 上的 $REMOTE_BASE_DIR/sequence.txt"
 done
 
+base_dir="/home/kvgroup/louzy/LaCoLSM/data"  # 本地 data 目录（基准目录）
+# ---- 删除本节点的data文件夹 ----
+local_data_dir="$base_dir"
+if [ -d "$local_data_dir" ]; then
+    echo -e "\n删除本节点data文件夹: $local_data_dir"
+    rm -rf "$local_data_dir"
+else
+    echo -e "\n本节点data文件夹不存在: $local_data_dir"
+fi
+
+
 echo -e "\n操作完成。已清理本地节点和所有其他远程节点上的CSV文件。"

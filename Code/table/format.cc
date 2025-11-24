@@ -318,10 +318,12 @@ Status ReadDataIndexBlock(ibv_mr* remote_mr, const ReadOptions& options,
   }else{
     rdma_mg->Allocate_Local_RDMA_Slot(contents, IndexChunk);
   }
+  //auto start_time = std::chrono::high_resolution_clock::now();
   rdma_mg->RDMA_Read(remote_mr, &contents, n + kBlockTrailerSize, "read_local",
                      IBV_SEND_SIGNALED, 1, target_node_id);
-
-//  printf("Fetch a Index Block");
+  //auto end_time = std::chrono::high_resolution_clock::now();
+  //printf("ReadDataIndexBlock data = %lf MB cost time = %zuus\n", (n + kBlockTrailerSize) / (1024.0 * 1024.0), std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+//  printf("Fetch a Index Block"
 
   // Check the crc of the type and the block contents
   //auto start_time = std::chrono::high_resolution_clock::now();
@@ -381,7 +383,7 @@ Status ReadDataIndexBlock(ibv_mr* remote_mr, const ReadOptions& options,
   return Status::OK();
 }
 Status ReadFilterBlock(ibv_mr* remote_mr, const ReadOptions& options,
-                       BlockContents* result, uint8_t target_node_id) {
+                       BlockContents* result, uint8_t target_node_id) {                        
   result->data = Slice();
 //  result->cachable = false;
 //  result->heap_allocated = false;
@@ -395,7 +397,6 @@ Status ReadFilterBlock(ibv_mr* remote_mr, const ReadOptions& options,
   rdma_mg->Allocate_Local_RDMA_Slot(contents, FilterChunk);
   rdma_mg->RDMA_Read(remote_mr, &contents, n + kBlockTrailerSize, "read_local",
                      IBV_SEND_SIGNALED, 1, target_node_id);
-
   // Check the crc of the type and the block contents
   const char* data = static_cast<char*>(contents.addr);  // Pointer to where Read put the data
   if (options.verify_checksums) {

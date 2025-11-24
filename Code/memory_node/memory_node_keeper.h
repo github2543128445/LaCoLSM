@@ -167,7 +167,7 @@ class Memory_Node_Keeper {
     for (int cases = 0; cases < 4; ++cases) {
       for (int stage = 0; stage < 5; ++stage) {
         // 构造文件名：C1_[case]_[stage].csv
-        std::string filename = "../C1_" + std::to_string(cases) + "_" + std::to_string(stage) + ".csv";  
+        std::string filename = "../C1_" + std::to_string(cases+1) + "_" + std::to_string(stage+1) + ".csv";  
 
         // 打开文件（若存在则覆盖，用trunc模式；若需追加可改为app）
         std::ofstream csv_file(filename, std::ios::app);

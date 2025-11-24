@@ -1744,10 +1744,10 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
     }
   }//LZYTODO，A设计另一条数据路径，只远端访问，不走Cache；B给Cache增加字段，访问时辨别
   assert(num <= space);
-  auto start_time = std::chrono::steady_clock::now();
+  //auto start_time = std::chrono::steady_clock::now();
   Iterator* result = NewMergingIterator(&icmp_, list, num);
-  auto end_time = std::chrono::steady_clock::now();
-  printf("Iterator* VersionSet::MakeInputIterator: cost time is %lu us \n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
+  //auto end_time = std::chrono::steady_clock::now();
+  //printf("Iterator* VersionSet::MakeInputIterator: cost time is %lu us \n", std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
   delete[] list;
   return result;
 }

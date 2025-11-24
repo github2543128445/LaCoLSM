@@ -53,6 +53,9 @@ taskset -c 40-71 ./db_bench --benchmarks=fillrandom \
            --compute_node_id=$node_id > temp.txt 2>&1 &
 db_bench_pid=$!
 
+# 新增：将 PID 打印到屏幕
+echo "db_bench 程序已启动，PID 为: $db_bench_pid"
+
 # 等待 db_bench 完成
 wait $db_bench_pid
 db_bench_pid=""

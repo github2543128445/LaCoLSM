@@ -20,4 +20,8 @@ NEXT_NO=$((NO + 1))
 # 更新序号文件
 echo $NEXT_NO > "$SEQ_FILE"
 
-taskset -c 40-55 ./Server 19843 80 0
+taskset -c 40-55 ./Server 19843 80 0 &
+# 获取刚刚启动的后台进程的 PID
+APP_PID=$!
+# 将 PID 打印到屏幕
+echo "Server 程序已启动，PID 为: $APP_PID"
