@@ -624,15 +624,12 @@ Status Memory_Node_Keeper::DoCompactionWork(CompactionState* compact,std::string
 #endif
   unsigned long long  num_of_KV = 0;
   unsigned long long  num_of_OutPutSST = 0;
-  unsigned long long  get_key_ns = 0,add_new_data_ns = 0,input_next_ns = 0;
+  unsigned long long  input_next_ns = 0;
   auto ns_start_time = std::chrono::steady_clock::now();
   auto ns_end_time = std::chrono::steady_clock::now();
   while (input->Valid()) {
     num_of_KV++;
-    ns_start_time = std::chrono::steady_clock::now();
     key = input->key();
-    ns_end_time = std::chrono::steady_clock::now();
-    get_key_ns+=std::chrono::duration_cast<std::chrono::nanoseconds>(ns_end_time - ns_start_time).count();
 
     //    assert(key.data()[0] == '0');
     //We do not need to check whether the output file have too much overlap with level n + 2.
@@ -689,10 +686,7 @@ Status Memory_Node_Keeper::DoCompactionWork(CompactionState* compact,std::string
 #ifndef NDEBUG
       Not_drop_counter++;
 #endif
-      ns_start_time = std::chrono::steady_clock::now();
       compact->builder->Add(key, input->value());
-      ns_end_time = std::chrono::steady_clock::now();
-      add_new_data_ns+=std::chrono::duration_cast<std::chrono::nanoseconds>(ns_end_time - ns_start_time).count();
       //      assert(key.data()[0] == '0');
       // Close output file if it is big enough
       if (compact->builder->FileSize() >=
@@ -761,7 +755,7 @@ printf("For compaction, Total number of key touched is %d, KV left is %d\n", num
   C1_append(num_of_file, sumcore*rdma_mg->rpter.current_percent, S3_cost, cases, 3);
   C1_detail_append(cost_time-S3_cost, cases, 2);
   C1_detail_append(S3_cost, cases, 3);
-  printf("Memory_Node_Keeper::DoCompactionWork: num_of_KV %llu, num_of_OutPutSST %llu, get_key_us %llu, add_new_data_us %llu, input_next_us %llu, finish block us %llu, other calculate us %llu\n", num_of_KV, num_of_OutPutSST, get_key_ns/1000, add_new_data_ns/1000, input_next_ns/1000, S3_cost,cost_time-S3_cost-input_next_ns/1000-add_new_data_ns/1000-get_key_ns/1000);
+  printf("Memory_Node_Keeper::DoCompactionWork: num_of_KV %llu, num_of_OutPutSST %llu, input_next_us(read sst) %llu, finish_block_us(write sst) %llu, other calculate us %llu\n", num_of_KV, num_of_OutPutSST, input_next_ns/1000, S3_cost, cost_time-S3_cost-input_next_ns/1000);
 
   CompactionStats stats;
 //  stats.micros = env_->NowMicros() - start_micros - imm_micros;

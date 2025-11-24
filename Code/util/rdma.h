@@ -333,6 +333,7 @@ class RDMA_Manager {
   std::map<uint8_t,bool> finished_node;
   void Finish_and_Wait(){ //循环发送完成信息, 阻塞等待其他节点完成, 在调用该函数前, benchmark已经跑完,输出了相关信息
     int i = 0;
+    finished_node[node_id] = true;
     while(finished_node.size()<compute_nodes.size()){
       for (auto iter : compute_nodes) {
         if(iter.first == RDMA_Manager::node_id) continue;

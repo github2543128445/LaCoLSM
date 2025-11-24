@@ -4890,7 +4890,7 @@ Status DBImpl::InstallCompactionResultsFor(CompactionState* compact,uint8_t targ
       assert(!meta->UnderCompaction);
     }
   }else{//含subcompaction,估计用不上
-    printf("InstallCompactionResultsFor : you should not come here\n");
+    //printf("InstallCompactionResultsFor : you should not come here\n");
     for(auto subcompact : compact->sub_compact_states){
       for (size_t i = 0; i < subcompact.outputs.size(); i++) {
         const CompactionOutput& out = subcompact.outputs[i];
@@ -6450,7 +6450,7 @@ Status DBImpl::DoCompactionWorkWithSubcompaction(CompactionState* compact) {
 void DBImpl::RemoteProcessKeyValueCompaction(SubcompactionState* sub_compact,uint8_t target_node_id,std::atomic<uint64_t>* file_num){//LZYADD 参考DBImpl::ProcessKeyValueCompaction
   assert(sub_compact->builder == nullptr);
   //Start and End are userkeys.
-  printf("RemoteProcessKeyValueCompaction: start\n");
+  //printf("RemoteProcessKeyValueCompaction: start\n");
   Slice* start = sub_compact->start;
   Slice* end = sub_compact->end;
   if (snapshots_.empty()) {
@@ -6536,12 +6536,12 @@ void DBImpl::RemoteProcessKeyValueCompaction(SubcompactionState* sub_compact,uin
     status = input->status();
   }
   delete input;
-  printf("RemoteProcessKeyValueCompaction: end\n");
+  //printf("RemoteProcessKeyValueCompaction: end\n");
 }
 void DBImpl::RemoteProcessKeyValueCompactionPlusCases(SubcompactionState* sub_compact,uint8_t target_node_id,std::atomic<uint64_t>* file_num,int cases){//LZYADD 参考DBImpl::ProcessKeyValueCompaction
   assert(sub_compact->builder == nullptr);
   //Start and End are userkeys.
-  printf("RemoteProcessKeyValueCompaction: start\n");
+  //printf("RemoteProcessKeyValueCompaction: start\n");
   Slice* start = sub_compact->start;
   Slice* end = sub_compact->end;
   if (snapshots_.empty()) {
@@ -6643,7 +6643,7 @@ void DBImpl::RemoteProcessKeyValueCompactionPlusCases(SubcompactionState* sub_co
     status = input->status();
   }
   delete input;
-  printf("RemoteProcessKeyValueCompaction: end\n");
+  //printf("RemoteProcessKeyValueCompaction: end\n");
   end_time = std::chrono::steady_clock::now();
   cost_time = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count();
   C2_append(num_of_file, num_of_core*env_->rdma_mg->rpter.current_percent, cost_time-S3_cost, cases, 2);
@@ -7062,7 +7062,6 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
 #endif
   unsigned long long num_of_KV = 0;
   unsigned long long num_of_OutPutSST = 0;
-  unsigned long long add_new_data_ns = 0;
   unsigned long long input_next_ns = 0;
   auto ns_start_time = std::chrono::steady_clock::now();
   auto ns_end_time = std::chrono::steady_clock::now();
@@ -7140,10 +7139,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
 #ifndef NDEBUG
       Not_drop_counter++;
 #endif
-      ns_start_time = std::chrono::steady_clock::now();
       compact->builder->Add(key, input->value());
-      ns_end_time = std::chrono::steady_clock::now();
-      add_new_data_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(ns_end_time - ns_start_time).count();
       //assert(key.data()[0] == '0');
       //Close output file if it is big enough
       if (compact->builder->FileSize() >=compact->compaction->MaxOutputFileSize()) { //完成了一个Compaction output文件
@@ -7196,7 +7192,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
     status = Status::IOError("Deleting DB during compaction");
   }
   if (status.ok() && compact->builder != nullptr) {//LZY:收尾
-    num_of_KV++;
+    num_of_OutPutSST++;
 //    assert(key.data()[0] == '0');
     compact->current_output()->largest.DecodeFrom(key);
     // The assertion always failed below. need to understand why.
@@ -7234,7 +7230,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   C0_append(num_of_file, num_of_core*env_->rdma_mg->rpter.current_percent, S3_cost, cases, 2);
   C0_append(cost_time - S3_cost, cases, 1);//处理耗时
   C0_append(S3_cost, cases, 2);//写回耗时
-  printf("DBImpl::DoCompactionWork: num_of_KV %llu, num_of_OutPutSST %llu, add_new_data_us %llu, input_next_us %llu, finish block us %llu, other calculate us %llu\n", num_of_KV, num_of_OutPutSST, add_new_data_ns/1000, input_next_ns/1000, S3_cost,cost_time-S3_cost-input_next_ns/1000-add_new_data_ns/1000);
+  printf("DBImpl::DoCompactionWork: num_of_KV %llu, num_of_OutPutSST %llu, input_next_us(read sst) %llu, finish_block_us(write sst) %llu, other calculate us %llu\n", num_of_KV, num_of_OutPutSST, input_next_ns/1000, S3_cost, cost_time-S3_cost-input_next_ns/1000);
   if (status.ok()) {
     std::unique_lock<std::mutex> l(superversion_memlist_mtx, std::defer_lock);
     status = InstallCompactionResultsSelf(compact, &l);//LZY:删除老文件，添加新文件的meta，生成真实的Meta数据
