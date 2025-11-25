@@ -695,6 +695,9 @@ void RDMA_Manager::compute_message_handling_thread(std::string q_id, uint8_t sha
         post_receive<RDMA_Request>(&recv_mr[buffer_counter],shard_target_node_id,"main");
         remote_cpu_util_heart_beater_receiver(receive_msg_buf,
                                               shard_target_node_id);
+      } else if(receive_msg_buf->command == compaction_thread_heartbeat) {
+        post_receive<RDMA_Request>(&recv_mr[buffer_counter],shard_target_node_id,"main");
+        remote_compaction_thread_info_receiver(receive_msg_buf, shard_target_node_id);
       } else if (receive_msg_buf->command == create_qp_) {
         printf("positive: Why you create_qp_?\n");
         post_receive<RDMA_Request>(&recv_mr[buffer_counter],shard_target_node_id,"main");
@@ -712,8 +715,8 @@ void RDMA_Manager::compute_message_handling_thread(std::string q_id, uint8_t sha
         post_receive<RDMA_Request>(&recv_mr[buffer_counter],shard_target_node_id,"main");
         Arg_for_handler* argforhandler = new Arg_for_handler{.request=receive_msg_buf, .client_ip = "main", .target_node_id = shard_target_node_id};
         BGThreadMetadata* thread_pool_args = new BGThreadMetadata{.db = db_owner, .func_args = argforhandler};
-        //db_owner->env_->Schedule(DBImpl::BGWork_CompactionOthers, static_cast<void*>(thread_pool_args), ThreadPoolType::OtherCompactionThreadPool);
-        db_owner->env_->Schedule(DBImpl::BGWork_CompactionOthers, static_cast<void*>(thread_pool_args), ThreadPoolType::CompactionThreadPool);
+        db_owner->env_->Schedule(DBImpl::BGWork_CompactionOthers, static_cast<void*>(thread_pool_args), ThreadPoolType::RemoteCompactionThreadPool);
+        //db_owner->env_->Schedule(DBImpl::BGWork_CompactionOthers, static_cast<void*>(thread_pool_args), ThreadPoolType::CompactionThreadPool);
       } else {//一开始会瞎发东西, 不知道是啥导致的, 然后被向主的方向就断了
         post_receive<RDMA_Request>(&recv_mr[buffer_counter], shard_target_node_id, "main");
         printf("compute_message_handling_thread: corrupt message from node %d, command = %d\n",shard_target_node_id,receive_msg_buf->command); 
@@ -738,6 +741,7 @@ void RDMA_Manager::compute_message_handling_thread(std::string q_id, uint8_t sha
   //      rdma_mg->Deallocate_Local_RDMA_Slot(recv_mr[i].addr, Message);
   //    }
 }
+
 void RDMA_Manager::remote_cpu_util_heart_beater_receiver(RDMA_Request* request, uint8_t target_node_id) {
 
   //todo(ruihong): use UNLIKELY()
@@ -762,6 +766,18 @@ void RDMA_Manager::remote_cpu_util_heart_beater_receiver(RDMA_Request* request, 
 
 //  remote_compaction_issued.at(target_node_id_)->store(false);
   //DEBUG_arg("Recieve the cpu utilization %f\n", request->content.cpu_info.cpu_util);
+  delete request;
+}
+void RDMA_Manager::remote_compaction_thread_info_receiver(RDMA_Request* request, uint8_t target_node_id) {
+
+  int compaction_queue_len = (int)request->content.cpu_info.cpu_util;
+  int limit_num = request->content.cpu_info.core_number;
+  int compaction_thread_running = (int)request->content.cpu_info.arg_uint8;
+  if( limit_num > 0){
+    server_compaction_thread_using.at(target_node_id)->store(compaction_thread_running);
+    server_compaction_thread_limit.at(target_node_id)->store(limit_num);
+    server_compaction_thread_queuing.at(target_node_id)->store(compaction_queue_len);
+  }
   delete request;
 }
 void RDMA_Manager::ConnectQPThroughSocket(std::string qp_type, int socket_fd,
@@ -1385,6 +1401,9 @@ void RDMA_Manager::passive_communication_thread(std::string client_ip, int socke
       if(receive_msg_buf->command == cpu_utilization_heartbeat){
         post_receive<RDMA_Request>(&recv_mr[buffer_position],compute_node_id,client_ip);
         remote_cpu_util_heart_beater_receiver(receive_msg_buf,compute_node_id);
+      }else if(receive_msg_buf->command == compaction_thread_heartbeat){
+        post_receive<RDMA_Request>(&recv_mr[buffer_position],compute_node_id,client_ip);
+        remote_compaction_thread_info_receiver(receive_msg_buf,compute_node_id);
       } else if(receive_msg_buf->command == benchmark_finish) {
         // handle the heartbeat, record the cpu utilization and core number of the remote memory
         post_receive<RDMA_Request>(&recv_mr[buffer_position],compute_node_id,client_ip);
@@ -1404,8 +1423,8 @@ void RDMA_Manager::passive_communication_thread(std::string client_ip, int socke
         post_receive<RDMA_Request>(&recv_mr[buffer_position],compute_node_id,client_ip);
         Arg_for_handler* argforhandler = new Arg_for_handler{.request=receive_msg_buf, .client_ip = client_ip, .target_node_id = compute_node_id};
         BGThreadMetadata* thread_pool_args = new BGThreadMetadata{.db = db_owner, .func_args = argforhandler};
-        //db_owner->env_->Schedule(DBImpl::BGWork_CompactionOthers, static_cast<void*>(thread_pool_args), ThreadPoolType::OtherCompactionThreadPool);
-        db_owner->env_->Schedule(DBImpl::BGWork_CompactionOthers, static_cast<void*>(thread_pool_args), ThreadPoolType::CompactionThreadPool);
+        db_owner->env_->Schedule(DBImpl::BGWork_CompactionOthers, static_cast<void*>(thread_pool_args), ThreadPoolType::RemoteCompactionThreadPool);
+        //db_owner->env_->Schedule(DBImpl::BGWork_CompactionOthers, static_cast<void*>(thread_pool_args), ThreadPoolType::CompactionThreadPool);
       } else {//一开始会瞎发东西, 不知道是啥导致的, 然后被向主的方向就断了
         post_receive<RDMA_Request>(&recv_mr[buffer_position], compute_node_id, client_ip);
         printf("passive_communication_thread: corrupt message from node %d, command = %d\n",compute_node_id,receive_msg_buf->command); 
@@ -1420,6 +1439,80 @@ void RDMA_Manager::passive_communication_thread(std::string client_ip, int socke
     }
     
   }
+void RDMA_Manager::CN_create_cpu_util_heart_beater_sender() {
+  DEBUG("CN: Create cpu utilization sender\n");
+  std::thread CPU_utilization_heartbeat([&](){
+    //backup the function arguments
+    int print_counter = 0;
+    while (1){
+      double cpu_util_percentage = rpter.getCurrentValueCN();
+      if (cpu_util_percentage <0){
+        continue;
+      }
+      for (auto iter : compute_nodes) {
+        if(iter.first == RDMA_Manager::node_id) continue;
+        // register the memory block from the remote memory
+        RDMA_Request* send_pointer;
+        ibv_mr send_mr = {};
+        Allocate_Local_RDMA_Slot(send_mr, Message);
+        send_pointer = (RDMA_Request*)send_mr.addr;
+        send_pointer->command = cpu_utilization_heartbeat;
+        send_pointer->content.cpu_info.cpu_util = cpu_util_percentage;
+        send_pointer->content.cpu_info.core_number = rpter.numa_bind_core_num;
+        if (print_counter++ == 200){
+          printf("send cpu utilization %f to %d\n", cpu_util_percentage,iter.first);
+          print_counter = 0;
+        }
+
+        //printf("send heart_beat to %d, util = %lf\n", iter.first,cpu_util_percentage);
+
+        post_send<RDMA_Request>(&send_mr, iter.first, std::string("main"));
+        ibv_wc wc[2] = {};
+        if (poll_completion(wc, 1, std::string("main"), true, iter.first)){
+          fprintf(stderr, "failed to poll send for remote memory register\n");
+          return ;
+        }
+        //printf("send heart_beat to %d done\n", iter.first);
+      }
+      if(db_owner!=nullptr && db_owner->env_!=nullptr ){
+        double compaction_queue_len = (double)db_owner->env_->GetQueueLen(RemoteCompactionThreadPool);
+        int total_threads_limit = db_owner->env_->GetThreadLimit(RemoteCompactionThreadPool);
+        uint8_t compaction_thread_running = (uint8_t)db_owner->env_->GetRunningNum(RemoteCompactionThreadPool);
+        for (auto iter : compute_nodes) {
+          if(iter.first == RDMA_Manager::node_id) continue;
+          // register the memory block from the remote memory
+          RDMA_Request* send_pointer;
+          ibv_mr send_mr = {};
+          Allocate_Local_RDMA_Slot(send_mr, Message);
+          send_pointer = (RDMA_Request*)send_mr.addr;
+          send_pointer->command = compaction_thread_heartbeat;
+          send_pointer->content.cpu_info.cpu_util = compaction_queue_len;
+          send_pointer->content.cpu_info.core_number = total_threads_limit;
+          send_pointer->content.cpu_info.arg_uint8 = compaction_thread_running;
+          if (print_counter++ == 200){
+            printf("send compaction thread %f to %d, running %d\n", compaction_queue_len,iter.first, compaction_thread_running);
+            print_counter = 0;
+          }
+
+          //printf("send heart_beat to %d, util = %lf\n", iter.first,cpu_util_percentage);
+
+          post_send<RDMA_Request>(&send_mr, iter.first, std::string("main"));
+          ibv_wc wc[2] = {};
+          if (poll_completion(wc, 1, std::string("main"), true, iter.first)){
+            fprintf(stderr, "failed to poll send for remote memory register\n");
+            return ;
+          }
+          //printf("send heart_beat to %d done\n", iter.first);
+        }
+      }    
+      std::this_thread::sleep_for(std::chrono::milliseconds(CPU_UTILIZATION_CACULATE_INTERVAL));
+    }
+  });
+  CPU_utilization_heartbeat.detach();
+  // wait for the deepcopy
+  std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+  DEBUG("Create cpu utilization sender\n");
+}
 void RDMA_Manager::Initialize_threadlocal_map(){
   Remote_Mem_Bitmap.insert({FlushBuffer, new std::map<uint8_t, std::map<void*, In_Use_Array*>*>});
   Remote_Mem_Bitmap.insert({FilterChunk, new std::map<uint8_t, std::map<void*, In_Use_Array*>*>});
@@ -1466,6 +1559,9 @@ void RDMA_Manager::Initialize_threadlocal_map(){
     byte_len_map.insert({target_node_id, new  uint32_t{0}});
     cv_imme_map.insert({target_node_id, new std::condition_variable});
     server_cpu_percent.insert({target_node_id, new std::atomic<double>(0)});
+    server_compaction_thread_limit.insert({target_node_id, new std::atomic<int>(0)});
+    server_compaction_thread_using.insert({target_node_id, new std::atomic<int>(0)});
+    server_compaction_thread_queuing.insert({target_node_id, new std::atomic<int>(0)});
 //    remote_compaction_issued.insert({target_node_id_, new std::atomic<bool>(false)});
   }
   for (int i = 0; i < compute_nodes.size(); ++i) {
@@ -1500,6 +1596,9 @@ void RDMA_Manager::Initialize_threadlocal_map(){
     byte_len_map.insert({target_node_id, new  uint32_t{0}});
     cv_imme_map.insert({target_node_id, new std::condition_variable});
     server_cpu_percent.insert({target_node_id, new std::atomic<double>(0)});
+    server_compaction_thread_limit.insert({target_node_id, new std::atomic<int>(0)});
+    server_compaction_thread_using.insert({target_node_id, new std::atomic<int>(0)});
+    server_compaction_thread_queuing.insert({target_node_id, new std::atomic<int>(0)});
 //    remote_compaction_issued.insert({target_node_id_, new std::atomic<bool>(false)});
   }
   printf("Initialize_threadlocal_map: done\n");

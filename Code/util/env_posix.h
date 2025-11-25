@@ -741,11 +741,14 @@ class PosixEnv : public Env {
         //printf("///now Subcompaction Im %d///\n\n",num);
         subcompaction.SetBackgroundThreads(num);
         break;
-      case OtherCompactionThreadPool:
-        other_compaction.SetBackgroundThreads(num);
+      case RemoteCompactionThreadPool:
+        remote_compaction.SetBackgroundThreads(num);
         break;
-      
-      
+      case RemoteSubCompactionThreadPool:
+        remote_subcompaction.SetBackgroundThreads(num);
+        break;
+      default:
+        break;
     }
   }
 
@@ -779,10 +782,60 @@ class PosixEnv : public Env {
   ThreadPool flushing;
   ThreadPool compaction;
   ThreadPool subcompaction;
-  ThreadPool other_compaction;
+  ThreadPool remote_compaction;
+  ThreadPool remote_subcompaction;
   PosixLockTable locks_;  // Thread-safe.
   Limiter mmap_limiter_;  // Thread-safe.
   Limiter fd_limiter_;    // Thread-safe.
+public:
+  int GetRunningNum(ThreadPoolType type) override{
+    switch (type) {
+      case FlushThreadPool: 
+        return flushing.GetRunningNum();
+      case CompactionThreadPool:
+        return compaction.GetRunningNum();
+      case SubcompactionThreadPool:
+        return subcompaction.GetRunningNum();
+      case RemoteCompactionThreadPool:
+        return remote_compaction.GetRunningNum();
+      case RemoteSubCompactionThreadPool:
+        return remote_subcompaction.GetRunningNum();
+      default:
+        return 0;
+    }
+  }
+  int GetThreadLimit(ThreadPoolType type) override{
+    switch (type) {
+      case FlushThreadPool: 
+        return flushing.GetThreadLimit();
+      case CompactionThreadPool:
+        return compaction.GetThreadLimit();
+      case SubcompactionThreadPool:
+        return subcompaction.GetThreadLimit();
+      case RemoteCompactionThreadPool:
+        return remote_compaction.GetThreadLimit();
+      case RemoteSubCompactionThreadPool:
+        return remote_subcompaction.GetThreadLimit();
+      default:
+        return 0;
+    }
+  }
+  int GetQueueLen(ThreadPoolType type) override{
+    switch (type) {
+      case FlushThreadPool: 
+        return flushing.GetQueueLen();
+      case CompactionThreadPool:
+        return compaction.GetQueueLen();
+      case SubcompactionThreadPool:
+        return subcompaction.GetQueueLen();
+      case RemoteCompactionThreadPool:
+        return remote_compaction.GetQueueLen();
+      case RemoteSubCompactionThreadPool:
+        return remote_subcompaction.GetQueueLen();
+      default:
+        return 0;
+    }
+  }
 };
 
 // Return the maximum number of concurrent mmaps.

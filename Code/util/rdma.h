@@ -134,7 +134,8 @@ enum RDMA_Command_Type {
   cpu_utilization_heartbeat,
   benchmark_finish,
   remote_data_compaction,
-  mn_report
+  mn_report,
+  compaction_thread_heartbeat
 };
 enum file_type { log_type, others };
 struct fs_sync_command {
@@ -149,6 +150,8 @@ struct sst_gc {
 struct CPU_Info{
   double cpu_util;
   int core_number;
+  uint8_t arg_uint8;
+  uint32_t arg_uint32;
 };
 
 //TODO (ruihong): add the reply message address to avoid request&response conflict for the same queue pair.
@@ -521,49 +524,7 @@ class RDMA_Manager {
   // RDMA set up create all the resources, and create one query pair for RDMA send & Receive.
   void Client_Set_Up_Resources();
   void passive_communication_thread(std::string client_ip, int socket_fd) ;//LZY add
-  void CN_create_cpu_util_heart_beater_sender() {
-    DEBUG("CN: Create cpu utilization sender\n");
-    std::thread CPU_utilization_heartbeat([&](){
-      //backup the function arguments
-      int print_counter = 0;
-      while (1){
-        double cpu_util_percentage = rpter.getCurrentValueCN();
-        if (cpu_util_percentage <0){
-          continue;
-        }
-        for (auto iter : compute_nodes) {
-          if(iter.first == RDMA_Manager::node_id) continue;
-          // register the memory block from the remote memory
-          RDMA_Request* send_pointer;
-          ibv_mr send_mr = {};
-          Allocate_Local_RDMA_Slot(send_mr, Message);
-          send_pointer = (RDMA_Request*)send_mr.addr;
-          send_pointer->command = cpu_utilization_heartbeat;
-          send_pointer->content.cpu_info.cpu_util = cpu_util_percentage;
-          send_pointer->content.cpu_info.core_number = rpter.numa_bind_core_num;
-          if (print_counter++ == 200){
-            printf("send cpu utilization %f to %d\n", cpu_util_percentage,iter.first);
-            print_counter = 0;
-          }
-
-          //printf("send heart_beat to %d, util = %lf\n", iter.first,cpu_util_percentage);
-
-          post_send<RDMA_Request>(&send_mr, iter.first, std::string("main"));
-          ibv_wc wc[2] = {};
-          if (poll_completion(wc, 1, std::string("main"), true, iter.first)){
-            fprintf(stderr, "failed to poll send for remote memory register\n");
-            return ;
-          }
-          //printf("send heart_beat to %d done\n", iter.first);
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(CPU_UTILIZATION_CACULATE_INTERVAL));
-      }
-    });
-    CPU_utilization_heartbeat.detach();
-    // wait for the deepcopy
-    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
-    DEBUG("Create cpu utilization sender\n");
-  }
+  void CN_create_cpu_util_heart_beater_sender();
   int wait_sock_connect(const char* servername, int port);//LZY add
   void Initialize_threadlocal_map();
   // Set up the socket connection to remote shared memory.
@@ -638,8 +599,8 @@ class RDMA_Manager {
   //                                   ibv_mr* local_data_mr);
 //  void client_message_polling_thread();
   void compute_message_handling_thread(std::string q_id, uint8_t shard_target_node_id);
-  void remote_cpu_util_heart_beater_receiver(RDMA_Request* request,
-                                             uint8_t target_node_id);
+  void remote_cpu_util_heart_beater_receiver(RDMA_Request* request,uint8_t target_node_id);
+  void remote_compaction_thread_info_receiver(RDMA_Request* request,uint8_t target_node_id);                                    
   void ConnectQPThroughSocket(std::string qp_type, int socket_fd,
                               uint8_t& target_node_id);
   // Local memory register will register RDMA memory in local machine,
@@ -818,6 +779,9 @@ class RDMA_Manager {
   Resource_Printer_PlanB rpter;
   // Add for cpu utilization refreshing
 //TODO: (chuqing) if multiple servers
+  std::map<uint8_t,std::atomic<int>*> server_compaction_thread_limit;
+  std::map<uint8_t,std::atomic<int>*> server_compaction_thread_using;
+  std::map<uint8_t,std::atomic<int>*> server_compaction_thread_queuing;
   std::map<uint8_t,std::atomic<double>*> server_cpu_percent;
 //  std::map<uint8_t,std::atomic<bool>*> remote_compaction_issued;
 

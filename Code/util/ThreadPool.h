@@ -14,7 +14,7 @@
 #include <assert.h>
 namespace TimberSaw {
 class DBImpl;
-enum ThreadPoolType{FlushThreadPool, CompactionThreadPool, SubcompactionThreadPool, OtherCompactionThreadPool};
+enum ThreadPoolType{FlushThreadPool, CompactionThreadPool, SubcompactionThreadPool, RemoteCompactionThreadPool,RemoteSubCompactionThreadPool};
 struct BGItem {
   //  void* tag = nullptr;
   std::function<void(void* args)> function;
@@ -82,6 +82,7 @@ class ThreadPool{
       bgthreads_.push_back(std::move(p_t));
     }
   }
+
   void Schedule(std::function<void(void* args)>&& func, void* args){
 
     std::lock_guard<std::mutex> lock(mu_);
@@ -111,6 +112,7 @@ class ThreadPool{
     //    }
     WakeUpAllThreads();
   }
+
   void JoinThreads(bool wait_for_jobs_to_complete) {
 
     std::unique_lock<std::mutex> lock(mu_);
@@ -135,12 +137,26 @@ class ThreadPool{
     exit_all_threads_ = false;
     wait_for_jobs_to_complete_ = false;
   }
+
   void SetBackgroundThreads(int num){
     total_threads_limit_ = num;
   }
-  //  void Schedule(std::function<void(void* args)>&& schedule, void* args);
 
+  // 获取线程池的线程上限
+  int GetThreadLimit() {
+      return total_threads_limit_;
+  }
+  //  void Schedule(std::function<void(void* args)>&& schedule, void* args);
+  // 获取当前运行的线程数
+  int GetRunningNum()  {
+      std::lock_guard<std::mutex> lock(mu_); // 加锁保证线程安全
+      return bgthreads_.size();
+  }
+  int GetQueueLen(){
+    return queue_len_.load();
+  }
 };}
+
 
 
 #endif  // TimberSaw_THREADPOOL_H

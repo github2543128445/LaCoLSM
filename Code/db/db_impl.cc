@@ -285,7 +285,7 @@ printf("DB Impl1: cp1\n");
 
 #else
     env_->SetBackgroundThreads(options_.now_local_compactions,ThreadPoolType::CompactionThreadPool);
-    env_->SetBackgroundThreads(options_.now_remote_compactions,ThreadPoolType::OtherCompactionThreadPool);
+    env_->SetBackgroundThreads(options_.now_remote_compactions,ThreadPoolType::RemoteCompactionThreadPool);
 #endif
     Unpin_bg_pool_.SetBackgroundThreads(1);
 //    if (options_.block_cache != nullptr){
@@ -386,7 +386,7 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname, //实际�
 
 #else
   env_->SetBackgroundThreads(options_.now_local_compactions,ThreadPoolType::CompactionThreadPool);
-  env_->SetBackgroundThreads(options_.now_remote_compactions,ThreadPoolType::OtherCompactionThreadPool);
+  env_->SetBackgroundThreads(options_.now_remote_compactions,ThreadPoolType::RemoteCompactionThreadPool);
 
 #endif
 }
@@ -1608,8 +1608,7 @@ Status DBImpl::DoRemoteCompactionWorkWithSubcompaction(CompactionState* compact,
   auto boundaries = c->GetBoundaries(); //level 1 除了第一个，各文件最小值
   auto sizes = c->GetSizes();//level 1 所有文件的大小
   assert(boundaries->size() == sizes->size() - 1);
-//  int subcompaction_num = std::min((int)c->GetBoundariesNum(), config::max_compute_subcompactions);
-  if (boundaries->size()<=options_.max_compute_subcompactions){
+  if (boundaries->size()<=options_.max_remote_subcompactions){
     for (size_t i = 0; i <= boundaries->size(); i++) {
       Slice* start = i == 0 ? nullptr : &(*boundaries)[i - 1];
       Slice* end = i == boundaries->size() ? nullptr : &(*boundaries)[i];
@@ -1624,8 +1623,8 @@ Status DBImpl::DoRemoteCompactionWorkWithSubcompaction(CompactionState* compact,
         small_files.push_back(i);
     }
     int big_files_num = boundaries->size() - small_files.size();
-    int files_per_subcompaction = big_files_num/options_.max_compute_subcompactions + 1;//Due to interger round down, we need add 1.
-    double mean = sum * 1.0 / options_.max_compute_subcompactions;
+    int files_per_subcompaction = big_files_num/options_.max_remote_subcompactions + 1;//Due to interger round down, we need add 1.
+    double mean = sum * 1.0 / options_.max_remote_subcompactions;
     for (size_t i = 0; i <= boundaries->size(); i++) {
       size_t range_size = (*sizes)[i];
       Slice* start = i == 0 ? nullptr : &(*boundaries)[i - 1];
@@ -2412,65 +2411,65 @@ long double DBImpl::RequestRemoteUtilization(){
   return mn_percent;
 }
 void DBImpl::AddCompactionThread(){
-  if(options_.now_local_compactions == options_.sum_of_local_and_remote_compactions) return;
-  if(options_.now_local_compactions >= options_.sum_of_local_and_remote_compactions/2) options_.now_local_compactions += 2;
-  else options_.now_local_compactions *= 2;
+  // if(options_.now_local_compactions == options_.sum_of_local_and_remote_compactions) return;
+  // if(options_.now_local_compactions >= options_.sum_of_local_and_remote_compactions/2) options_.now_local_compactions += 2;
+  // else options_.now_local_compactions *= 2;
 
-  if(options_.now_local_compactions > options_.sum_of_local_and_remote_compactions) options_.now_local_compactions = options_.sum_of_local_and_remote_compactions;
-  env_->SetBackgroundThreads(options_.now_local_compactions,ThreadPoolType::CompactionThreadPool);
+  // if(options_.now_local_compactions > options_.sum_of_local_and_remote_compactions) options_.now_local_compactions = options_.sum_of_local_and_remote_compactions;
+  // env_->SetBackgroundThreads(options_.now_local_compactions,ThreadPoolType::CompactionThreadPool);
   return;
 }
 void DBImpl::SubCompactionThread(){
-  if(options_.now_local_compactions == options_.min_local_compactions) return;
-  options_.now_local_compactions -= 2;
+  // if(options_.now_local_compactions == options_.min_local_compactions) return;
+  // options_.now_local_compactions -= 2;
 
-  if(options_.now_local_compactions < options_.min_local_compactions) options_.now_local_compactions = options_.min_local_compactions;
-  env_->SetBackgroundThreads(options_.now_local_compactions,ThreadPoolType::CompactionThreadPool);
+  // if(options_.now_local_compactions < options_.min_local_compactions) options_.now_local_compactions = options_.min_local_compactions;
+  // env_->SetBackgroundThreads(options_.now_local_compactions,ThreadPoolType::CompactionThreadPool);
   return;
 }
 void DBImpl::AddLocalCompactionThread(){
-  if(options_.now_local_compactions >= options_.max_local_compactions) return;
-  options_.now_local_compactions ++;
-  options_.now_remote_compactions --;
+  // if(options_.now_local_compactions >= options_.max_local_compactions) return;
+  // options_.now_local_compactions ++;
+  // options_.now_remote_compactions --;
 
-  env_->SetBackgroundThreads(options_.now_local_compactions,ThreadPoolType::CompactionThreadPool);
-  env_->SetBackgroundThreads(options_.now_remote_compactions, ThreadPoolType::OtherCompactionThreadPool);
+  // env_->SetBackgroundThreads(options_.now_local_compactions,ThreadPoolType::CompactionThreadPool);
+  // env_->SetBackgroundThreads(options_.now_remote_compactions, ThreadPoolType::RemoteCompactionThreadPool);
   return;
 }
 void DBImpl::SubLocalCompactionThread(){
-  if(options_.now_local_compactions <= options_.min_local_compactions) return;
-  options_.now_local_compactions --;
-  options_.now_remote_compactions ++;
+  // if(options_.now_local_compactions <= options_.min_local_compactions) return;
+  // options_.now_local_compactions --;
+  // options_.now_remote_compactions ++;
 
-  env_->SetBackgroundThreads(options_.now_local_compactions,ThreadPoolType::CompactionThreadPool);
-  env_->SetBackgroundThreads(options_.now_remote_compactions, ThreadPoolType::OtherCompactionThreadPool);
+  // env_->SetBackgroundThreads(options_.now_local_compactions,ThreadPoolType::CompactionThreadPool);
+  // env_->SetBackgroundThreads(options_.now_remote_compactions, ThreadPoolType::RemoteCompactionThreadPool);
   return;
 }
 void DBImpl::QuickAddLocalCompactionThread(){
-  if(options_.now_local_compactions >= options_.max_local_compactions) return;
+  // if(options_.now_local_compactions >= options_.max_local_compactions) return;
   
-  if(options_.now_local_compactions <= options_.max_local_compactions/2) options_.now_local_compactions *=2;
-  else options_.now_local_compactions +=2;
-  if(options_.now_local_compactions>options_.max_local_compactions) options_.now_local_compactions = options_.max_local_compactions;
+  // if(options_.now_local_compactions <= options_.max_local_compactions/2) options_.now_local_compactions *=2;
+  // else options_.now_local_compactions +=2;
+  // if(options_.now_local_compactions>options_.max_local_compactions) options_.now_local_compactions = options_.max_local_compactions;
 
-  options_.now_remote_compactions = options_.sum_of_local_and_remote_compactions - options_.now_local_compactions;
+  // options_.now_remote_compactions = options_.sum_of_local_and_remote_compactions - options_.now_local_compactions;
 
-  env_->SetBackgroundThreads(options_.now_local_compactions,ThreadPoolType::CompactionThreadPool);
-  env_->SetBackgroundThreads(options_.now_remote_compactions, ThreadPoolType::OtherCompactionThreadPool);
+  // env_->SetBackgroundThreads(options_.now_local_compactions,ThreadPoolType::CompactionThreadPool);
+  // env_->SetBackgroundThreads(options_.now_remote_compactions, ThreadPoolType::RemoteCompactionThreadPool);
   return;
 }
 void DBImpl::QuickSubLocalCompactionThread(){
-  if(options_.now_local_compactions <= options_.min_local_compactions) return;
-  options_.now_local_compactions -=2;
-  if(options_.now_local_compactions < options_.min_local_compactions) options_.now_local_compactions = options_.min_local_compactions;
+  // if(options_.now_local_compactions <= options_.min_local_compactions) return;
+  // options_.now_local_compactions -=2;
+  // if(options_.now_local_compactions < options_.min_local_compactions) options_.now_local_compactions = options_.;
 
-  options_.now_remote_compactions = options_.sum_of_local_and_remote_compactions - options_.now_local_compactions;
+  // options_.now_remote_compactions = options_.sum_of_local_and_remote_compactions - options_.now_local_compactions;
 
-  env_->SetBackgroundThreads(options_.now_local_compactions,ThreadPoolType::CompactionThreadPool);
-  env_->SetBackgroundThreads(options_.now_remote_compactions, ThreadPoolType::OtherCompactionThreadPool);
+  // env_->SetBackgroundThreads(options_.now_local_compactions,ThreadPoolType::CompactionThreadPool);
+  // env_->SetBackgroundThreads(options_.now_remote_compactions, ThreadPoolType::RemoteCompactionThreadPool);
   return;
 }
-bool DBImpl::CheckWhetherPushDownorNot(Compaction* compact) {
+bool DBImpl::CheckWhetherPushDownorNot(Compaction* compact) { //not use
   auto rdma_mg = env_->rdma_mg;
   double LocalCPU_utilization = rdma_mg->local_cpu_percent.load();
   double RemoteCPU_utilization= rdma_mg->server_cpu_percent.at(shard_target_node_id)->load();
@@ -2696,16 +2695,18 @@ int DBImpl::CompactionTaskWhereToGoPureRemote(Compaction* compact){//全由对�
   auto rdma_mg = env_->rdma_mg;
   double LocalCPU_utilization = rdma_mg->local_cpu_percent.load();
   auto &RemoteCPU_utilization=rdma_mg->server_cpu_percent;
-  //double RemoteCPU_utilization= rdma_mg->server_cpu_percent.at(shard_target_node_id)->load();
 #if NEARDATACOMPACTION==2
   for(auto iter:RemoteCPU_utilization){
     if(iter.first != rdma_mg->node_id && iter.first%2 != 0) {
+      printf("Now Remote CN Compaction Thread = %d/%d, %d queuing\n",rdma_mg->server_compaction_thread_using.at(iter.first)->load(),rdma_mg->server_compaction_thread_limit.at(iter.first)->load(),rdma_mg->server_compaction_thread_queuing.at(iter.first)->load());
       return iter.first; 
     }
   }
 #elif NEARDATACOMPACTION == 0
+  printf("Now CN Compaction Thread = %d/%d, %d queuing\n",env_->GetRunningNum(CompactionThreadPool),env_->GetThreadLimit(CompactionThreadPool),env_->GetQueueLen(CompactionThreadPool));
   return -1;
 #else
+  printf("Now MN Compaction Thread = %d/%d, %d queuing\n",rdma_mg->server_compaction_thread_using.at(shard_target_node_id)->load(),rdma_mg->server_compaction_thread_limit.at(shard_target_node_id)->load(),rdma_mg->server_compaction_thread_queuing.at(shard_target_node_id)->load());
   return shard_target_node_id; //Use NearDataCompaction
 #endif
 }
@@ -2738,7 +2739,7 @@ int DBImpl::CompactionTaskWhereToGoMod3(Compaction* compact){
   return shard_target_node_id; //Use NearDataCompaction
 #endif
 }
-int DBImpl::CompactionTaskWhereToGo(Compaction* compact){//LZYTODO
+int DBImpl::CompactionTaskWhereToGo(Compaction* compact){//最原始版本，弃用
 #if NEARDATACOMPACTION==2
   auto rdma_mg = env_->rdma_mg;
   int aim = 0;

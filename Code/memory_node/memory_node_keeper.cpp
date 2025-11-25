@@ -1768,6 +1768,7 @@ Status Memory_Node_Keeper::InstallCompactionResultsToComputePreparation(
         BGThreadMetadata* thread_pool_args = new BGThreadMetadata{.db = this, .func_args = argforhandler};
         //printf("Schedule CompactionThreadPool len : %d\n", Compactor_pool_.queue_len_.load());
         Compactor_pool_.Schedule(&Memory_Node_Keeper::RPC_Compaction_Dispatch, thread_pool_args); //将RPC_Compaction_Dispatch函数加入Compactor的线程池  
+        printf("Schedule CompactionThreadPool running:%d. limit:%d. queuing:%d\n", Compactor_pool_.GetRunningNum(), Compactor_pool_.GetThreadLimit(), Compactor_pool_.GetQueueLen());
 //        sst_compaction_handler(nullptr);
       } else if(receive_msg_buf->command == mn_report){
         rdma_mg->post_receive<RDMA_Request>(&recv_mr[buffer_position],
@@ -2098,8 +2099,37 @@ printf("server_sock_connect : servername %s. port %d\n",servername,port);
             fprintf(stderr, "failed to poll send for remote memory register\n");
             return ;
           }
-
         }
+        double compaction_queue_len = (double)Compactor_pool_.GetQueueLen();
+        int total_threads_limit = (uint8_t)Compactor_pool_.GetThreadLimit();
+        uint8_t compaction_thread_running = (uint8_t)Compactor_pool_.GetRunningNum();
+
+        for (auto iter : rdma_mg->compute_nodes) {
+          // register the memory block from the remote memory
+          RDMA_Request* send_pointer;
+          ibv_mr send_mr = {};
+          rdma_mg->Allocate_Local_RDMA_Slot(send_mr, Message);
+
+          send_pointer = (RDMA_Request*)send_mr.addr;
+          send_pointer->command = compaction_thread_heartbeat;
+          send_pointer->content.cpu_info.cpu_util = compaction_queue_len;
+          send_pointer->content.cpu_info.core_number = total_threads_limit;
+          send_pointer->content.cpu_info.arg_uint8 = compaction_thread_running;
+#ifndef NDEBUG
+          if (print_counter++ == 200){
+            printf("Current compaction queue len is %f, running thread is %d\n", compaction_queue_len, compaction_thread_running);
+            print_counter = 0;
+          }
+#endif
+          rdma_mg->post_send<RDMA_Request>(&send_mr, iter.first, std::string("main"));
+          ibv_wc wc[2] = {};
+          if (rdma_mg->poll_completion(wc, 1, std::string("main"), true,
+                                       iter.first)){
+            fprintf(stderr, "failed to poll send for remote memory register\n");
+            return ;
+          }
+        }
+
         std::this_thread::sleep_for(std::chrono::milliseconds(CPU_UTILIZATION_CACULATE_INTERVAL));
       }
 

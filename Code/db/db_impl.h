@@ -803,7 +803,7 @@ class DBImpl : public DB{
   void persistence_unpin_handler(void* arg);
 #endif
   // Constant after construction
-  Env* const env_;
+  Env* const env_; //实际使用PosixEnv
   std::unordered_map<unsigned int, std::pair<std::mutex, std::condition_variable>> imm_notifier_pool;
 //  unsigned int imm_temp = 1;
   // THose vairbale could be shared pointers from the out side.

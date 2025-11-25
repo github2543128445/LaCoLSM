@@ -225,6 +225,10 @@ class TimberSaw_EXPORT Env {
 //  RDMA_Manager* rdma_mg;
   std::shared_ptr<RDMA_Manager> rdma_mg;
   bool initialized = false;
+public:
+  virtual int GetRunningNum(ThreadPoolType type) = 0;
+  virtual int GetThreadLimit(ThreadPoolType type) = 0;
+  virtual int GetQueueLen(ThreadPoolType type) = 0;
 };
 
 // A file abstraction for reading sequentially through a file
