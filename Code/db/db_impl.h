@@ -88,6 +88,39 @@ class DBImpl : public DB{
 #endif
  public:
   //LZY add ↓
+  int delay_num = 0;
+  int delay_us_sum = 0;
+  std::deque<int> delay_us;
+  std::mutex delay_lock;
+  void AddDelay(int us) {
+    std::lock_guard<std::mutex> lock(delay_lock);
+    delay_us.push_back(us);
+    delay_us_sum += us;
+    delay_num++;
+  }
+  int write_stop_num_manyImm = 0;
+  int write_stop_us_sum_manyImm = 0;
+  std::deque<int> write_stop_us_manyImm;
+  std::mutex write_stop_lock_manyImm;
+  void AddWriteStopManyImm(int us) {
+    std::lock_guard<std::mutex> lock(write_stop_lock_manyImm);
+    write_stop_us_manyImm.push_back(us);
+    write_stop_us_sum_manyImm += us;
+    write_stop_num_manyImm++;
+  }
+  int write_stop_num_manyL0 = 0;
+  int write_stop_us_sum_manyL0 = 0;
+  std::deque<int> write_stop_us_manyL0;
+  std::mutex write_stop_lock_manyL0;
+  void AddWriteStopManyL0(int us) {
+    std::lock_guard<std::mutex> lock(write_stop_lock_manyL0);
+    write_stop_us_manyL0.push_back(us);
+    write_stop_us_sum_manyL0 += us;
+    write_stop_num_manyL0++;
+  }
+
+
+
   int trigger_compaction_in_level[7];
   int trivial_move_in_level[7];
   long long duration_time_in_level[7];
@@ -302,10 +335,6 @@ class DBImpl : public DB{
     if(10.0 < speed && speed < 100000.0) compaction_speed_sub[sub_case].push_back(speed);
   }
 
-  void compaction_latancy_append(int value){
-    std::lock_guard<std::mutex> lock(compaction_latancy_all_mtx);
-    compaction_latancy_all.push_back(value);
-  }
   void insert_lat_append(int value){
     std::lock_guard<std::mutex> lock(insert_lat_mtx);
     insert_lat.push_back(value);
@@ -506,7 +535,27 @@ class DBImpl : public DB{
     }
     printf("---- End Show OPT Latancy ----\n");
     #endif
-
+    printf("---- Show Write Delay And Stop ----\n");
+    printf("Write Delay:happen time = %d\n",delay_num);
+    if(write_stop_num_manyImm>0){
+      std::sort(write_stop_us_manyImm.begin(),write_stop_us_manyImm.end());
+      int p50 = write_stop_us_manyImm[write_stop_us_manyImm.size()*0.5];
+      int p90 = write_stop_us_manyImm[write_stop_us_manyImm.size()*0.9];
+      int p99 = write_stop_us_manyImm[write_stop_us_manyImm.size()*0.99];
+      printf("Write Stop By Too Many Immutable Table :happen time = %d, avg = %d us,P50 = %d,P90 = %d,P99 = %d\n",write_stop_num_manyImm,write_stop_us_sum_manyImm/write_stop_num_manyImm,p50,p90,p99);
+    }else{
+      printf("Write Stop By Too Many Immutable Table :happen time = 0, avg = 0 us,P50 = 0,P90 = 0,P99 = 0\n");
+    }
+    if(write_stop_num_manyL0>0){
+      std::sort(write_stop_us_manyL0.begin(),write_stop_us_manyL0.end());
+      int p50 = write_stop_us_manyL0[write_stop_us_manyL0.size()*0.5];
+      int p90 = write_stop_us_manyL0[write_stop_us_manyL0.size()*0.9];
+      int p99 = write_stop_us_manyL0[write_stop_us_manyL0.size()*0.99];
+      printf("Write Stop By Too Many L0 Table :happen time = %d, avg = %d us,P50 = %d,P90 = %d,P99 = %d\n",write_stop_num_manyL0,write_stop_us_sum_manyL0/write_stop_num_manyL0,p50,p90,p99);
+    }else{
+      printf("Write Stop By Too Many L0 Table :happen time = 0, avg = 0 us,P50 = 0,P90 = 0,P99 = 0\n");
+    }
+    if(write_stop_num_manyL0>0)
     printf("---- Show Compaction Latancy ----\n");
     if(!compaction_latancy_all.empty()){
       std::sort(compaction_latancy_all.begin(),compaction_latancy_all.end());
@@ -752,7 +801,7 @@ class DBImpl : public DB{
   int CompactionTaskWhereToGoTestv1(Compaction* compact);//LZYADD
   int CompactionTaskWhereToGoTestv2(Compaction* compact);//LZYADD
   int CompactionTaskWhereToGoTestv3(Compaction* compact);//LZYADD 当前最优
-  int CompactionTaskWhereToGoTestv4(Compaction* compact);//LZYADD 失败
+  int CompactionTaskWhereToGoTestv4(Compaction* compact);//LZYADD
   int CompactionTaskWhereToGoTestv5(Compaction* compact);//LZYADD
   bool CheckWhetherPushDownorNot(Compaction* compact);
   bool CheckByteaddressableOrNot(Compaction* compact);

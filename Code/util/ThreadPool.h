@@ -54,13 +54,12 @@ class ThreadPool{
 
       if (exit_all_threads_) {  // mechanism to let BG threads exit safely
 
-        if (!wait_for_jobs_to_complete_ ||
-        queue_.empty()) {
+        if (!wait_for_jobs_to_complete_ || queue_.empty()) {
           break;
         }
       }
 
-
+      printf("BGThread: queue len %d\n", queue_.size());
       auto func = std::move(queue_.front().function);
       void* args = std::move(queue_.front().args);
       queue_.pop_front();

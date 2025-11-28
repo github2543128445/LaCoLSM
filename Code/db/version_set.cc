@@ -2227,7 +2227,7 @@ bool VersionSet::PickFileToCompact(int level, Compaction* c,  //LZY:得到需要
     return PickLevel0FilePlanv0(level,c, current_snap);//根本没法分，选所有level0层是因为确实所有level0都会重叠
   }
   else {//LZY：非level0层
-    PickLevelNFilePlanv3(level,c, current_snap);
+    PickLevelNFilePlanv0(level,c, current_snap);
   }
   return !c->inputs_[0].empty();
   
@@ -2237,7 +2237,7 @@ bool VersionSet::PickFileToCompact(int level, Compaction* c,  //LZY:得到需要
   if (level==0){
     return PickLevel0FilePlanv0(level,c, current_snap);
   }else {//LZY：非level0层
-    PickLevelNFilePlanv3(level,c, current_snap);
+    PickLevelNFilePlanv0(level,c, current_snap);
   }
   return !c->inputs_[0].empty();
 

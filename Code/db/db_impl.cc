@@ -4027,7 +4027,7 @@ int DBImpl::CompactionTaskWhereToGoTestv4(Compaction* compact){//结合pickv3，
   return shard_target_node_id; //Use NearDataCompaction
 #endif
 }
-int DBImpl::CompactionTaskWhereToGoTestv5(Compaction* compact){//配合PickLevelNFilePlanv3 TODO
+int DBImpl::CompactionTaskWhereToGoTestv5(Compaction* compact){//配合PickLevelNFilePlanv0， 依据CPU利用率+线程排队进行分配
 #if NEARDATACOMPACTION==2
   auto rdma_mg = env_->rdma_mg;
   int aim = 0;
@@ -4053,144 +4053,156 @@ int DBImpl::CompactionTaskWhereToGoTestv5(Compaction* compact){//配合PickLevel
   double Local_Score = 0.0;
   double RCN_Score = 0.0;
   double RMN_Score = 0.0;
-  // double Local_v_core = 5 + 2*rdma_mg->server_cpu_percent.size() + //通信
-  //                           options_.max_background_flushes +    //flush
-  //                           options_.sum_of_local_and_remote_compactions + //总Compaction线程
-  //                           options_.max_compute_subcompactions; //总SubCompaction线程
-  
-  // double RMN_v_core = 10 + 2*(RCN_core.size()+1) + //通信
-  //                         options_.max_memory_compactions + //总Compaction线程
-  //                         options_.max_memory_subcompactions; //赋权的SubCompaction线程
-  double Local_v_core = Local_core;
-  double RMN_v_core = RMN_core;
-  double Local_utilization = rdma_mg->local_cpu_percent.load();
-  double RMN_utilization = rdma_mg->server_cpu_percent.at(shard_target_node_id)->load();
-  printf("CompactionTaskWhereToGo : Local_utilization = %f, RMN_utilization = %f\n", Local_utilization, RMN_utilization);
+
+  double Local_utilization_percent = rdma_mg->local_cpu_percent.load();
+  double RMN_utilization_percent = rdma_mg->server_cpu_percent.at(shard_target_node_id)->load();
+  printf("CompactionTaskWhereToGo : Local_utilization = %f, RMN_utilization = %f\n", Local_utilization_percent, RMN_utilization_percent);
   if (compact->level() == 0){//Level 0
     if(options_.usesubcompaction && compact->CanSubCompaction()){ //L0 + Sub
       //Local + L0 + Sub ↓
-      // //Local_v_core = (double)rdma_mg->local_compute_core_number;//简化模型
-      // double Local_relative_uti = (Local_core*Local_utilization)/(100.0*Local_v_core);
-      // double Local_v_av_core = Local_v_core *
-      //                           (Local_relative_uti > 1.0 ? 0.000001:(1.0 - Local_relative_uti));
-      // double Local_max_achievable_parallel = options_.max_compute_subcompactions < task_parallelism ? options_.max_compute_subcompactions : task_parallelism;
-      // double Local_now_achievable_parallel = Local_max_achievable_parallel < Local_v_av_core ? Local_max_achievable_parallel : Local_v_av_core;
-      
-      // if(L0_num+L1_num<32) Local_Score = Local_now_achievable_parallel;//小任务
-      // else  Local_Score = Local_max_achievable_parallel;//大任务
-      // //Local + L0 + Sub ↑
+      double Local_uti = Local_utilization_percent/100.0;
+      double Local_av_core = Local_core * (Local_uti > 1.0 ? 0.000001:(1.0 - Local_uti));
+      double Local_max_achievable_parallel = options_.max_compute_subcompactions < task_parallelism ? options_.max_compute_subcompactions : task_parallelism;
+      double Local_now_achievable_parallel = Local_max_achievable_parallel < Local_av_core ? Local_max_achievable_parallel : Local_av_core;
+      int Local_queuing = env_->GetQueueLen(CompactionThreadPool);
+      //Local + L0 + Sub ↑
 
-      // //RMN + L0 + Sub ↓
-      // double RMN_relative_uti = (RMN_core*RMN_utilization)/(100.0*RMN_v_core);
-      // double RMN_v_av_core = RMN_v_core *
-      //                           (RMN_relative_uti > 1.0 ? 0.000001:(1.0 - RMN_relative_uti));
-      // double RMN_max_achievable_parallel = options_.max_memory_subcompactions < task_parallelism ? options_.max_memory_subcompactions : task_parallelism;
-      // double RMN_now_achievable_parallel = RMN_max_achievable_parallel < RMN_v_av_core ? RMN_max_achievable_parallel : RMN_v_av_core;
+      //RMN + L0 + Sub ↓
+      double RMN_uti = RMN_utilization_percent/100.0;
+      double RMN_av_core = RMN_core * (RMN_uti > 1.0 ? 0.000001:(1.0 - RMN_uti));
+      double RMN_max_achievable_parallel = options_.max_memory_subcompactions < task_parallelism ? options_.max_memory_subcompactions : task_parallelism;
+      double RMN_now_achievable_parallel = RMN_max_achievable_parallel < RMN_av_core ? RMN_max_achievable_parallel : RMN_av_core;         
+      int RMN_queuing = rdma_mg->server_compaction_thread_queuing[shard_target_node_id]->load();       
+      //RMN + L0 + Sub ↑
 
-      // RMN_Score = 2.69 * RMN_now_achievable_parallel;//不分大小任务，因为MN连多个CN，不可能有机会all in           
-      // //RMN + L0 + Sub ↑
+      if(L0_num+L1_num<32){ // 小任务
+        Local_Score = 3/Local_now_achievable_parallel;
+        RMN_Score = 1.86/RMN_now_achievable_parallel;
+        printf("Compaction Task Score 1.1: estimate cost Local %f, RMN %f\n",Local_Score,RMN_Score);
+        if(Local_Score >= RMN_Score) aim = shard_target_node_id;
+        else aim = -1;
+      }else{ //大任务
+        if(Local_queuing >=2 || Local_av_core < 5){//本地到达繁忙的情况
+          int RCN_best_id=-1;
+          double RCN_most_core=0.0;
+          for(auto it : RCN_core){
+            double RCN_uti = rdma_mg->server_cpu_percent[it.first]->load() / 100.0;
+            double RCN_core = it.second;
+            double RCN_av_core = RCN_core * (RCN_uti > 1.0 ? 0.000001:(1.0 - RCN_uti));
+            int RCN_queue_len = rdma_mg->server_compaction_thread_queuing[it.first]->load();
+            if(RCN_queue_len<1 && RCN_av_core > RCN_most_core){
+              RCN_best_id = it.first;
+              RCN_most_core = RCN_av_core;
+            }
+          }
 
-      // printf("Compaction Task Score 1: Local: %f, RMN: %f, RCN: %f\n", Local_Score, RMN_Score, RCN_Score);
-      // if(Local_Score > RMN_Score){ //LZYTODO
-      //   aim = -1;
-      // }else{
-      //   aim = shard_target_node_id;
-      // }
-      aim = shard_target_node_id;
+          if(RCN_most_core > Local_av_core){
+            aim = RCN_best_id;
+          }else{
+            aim = -1;
+          }
+        }else{
+          aim = -1;
+        }
+      }
     }else{//L0 no Sub
-      //Local + L0 no Sub ↓
-      //Local_v_core = (double)rdma_mg->local_compute_core_number;//简化模型
-      double Local_relative_uti = (Local_core*Local_utilization)/(100.0*Local_v_core);
-      double Local_v_av_core = Local_v_core *
-                                (Local_relative_uti > 1.0 ? 0.000001:(1.0 - Local_relative_uti));
+      //Local + L0 + Sub ↓
+      double Local_uti = Local_utilization_percent/100.0;
+      double Local_av_core = Local_core * (Local_uti > 1.0 ? 0.000001:(1.0 - Local_uti));
+      int Local_queuing = env_->GetQueueLen(CompactionThreadPool);
+      //Local + L0 + Sub ↑
+
+      //RMN + L0 + Sub ↓
+      double RMN_uti = RMN_utilization_percent/100.0;
+      double RMN_av_core = RMN_core * (RMN_uti > 1.0 ? 0.000001:(1.0 - RMN_uti));
+      int RMN_queuing = rdma_mg->server_compaction_thread_queuing[shard_target_node_id]->load();       
+      //RMN + L0 + Sub ↑
       
-      Local_Score = Local_v_av_core;//LZYTODO
-      //Local + L0 no Sub ↑
-
-      //RMN + L0 no Sub ↓
-      double RMN_relative_uti = (RMN_core*RMN_utilization)/(100.0*RMN_v_core);
-      double RMN_v_av_core = RMN_v_core *
-                                (RMN_relative_uti > 1.0 ? 0.000001:(1.0 - RMN_relative_uti));
-      RMN_Score = 1.2 * RMN_v_av_core;
-      //RMN_Score = 58.257*exp(0.3783*RMN_v_av_core);
-      //RMN + L0 no Sub ↑
-
-      ////RCN + L0 no Sub ↓
-      // int RCN_best_id=-1;
-      // for(auto it : RCN_core){
-      //   double RCN_utilization = rdma_mg->server_cpu_percent[it.first]->load();
-      //   double RCN_v_core = it.second;
-      //   double RCN_relative_uti = (it.second*RCN_utilization)/(100.0*RCN_v_core);
-      //   double RCN_v_av_core = RCN_v_core *
-      //                           (RCN_relative_uti > 1.0 ? 0.000001:(1.0 - RCN_relative_uti));
-
-      //   double RCN_temp_Score = 0.85*RCN_v_av_core;//LZYTODO,应该差一些
-      //   if(RCN_temp_Score > RCN_Score){
-      //     RCN_best_id = it.first;
-      //     RCN_Score = RCN_temp_Score;
-      //   }
-      // }
-      ////RCN + L0 no Sub ↑
-      // printf("Compaction Task Score 2: Local: %f, RMN: %f, RCN: %f\n", Local_Score, RMN_Score, RCN_Score);
-      // if(Local_Score > RMN_Score && Local_Score > RCN_Score){ //LZYTODO
-      //   aim = -1;
-      // }else if(RMN_Score > Local_Score && RMN_Score > RCN_Score){
-      //   aim = shard_target_node_id;
-      // }else{
-      //   aim = RCN_best_id;
-      // }
-      printf("Compaction Task Score 2: Local: %f, RMN: %f\n", Local_Score, RMN_Score);
-      if(Local_Score > RMN_Score && Local_Score > RCN_Score){ //LZYTODO
-        aim = -1;
-      }else{
-        aim = shard_target_node_id;
+      if(L0_num+L1_num<32){ //小任务
+        if(Local_queuing == 0 && RMN_queuing == 0){
+          aim = shard_target_node_id;
+        }else if(Local_queuing !=0 && RMN_queuing ==0){
+          aim = shard_target_node_id;
+        }else if(Local_queuing ==0 && RMN_queuing !=0){
+          aim = -1;
+        }else{
+          aim = -1;
+        }
+      }else{ //大任务
+        if(Local_queuing >=2){//本地到达繁忙的情况
+          int RCN_best_id=-1;
+          double RCN_most_core=0.0;
+          for(auto it : RCN_core){
+            double RCN_uti = rdma_mg->server_cpu_percent[it.first]->load() / 100.0;
+            double RCN_core = it.second;
+            double RCN_av_core = RCN_core * (RCN_uti > 1.0 ? 0.000001:(1.0 - RCN_uti));
+            int RCN_queue_len = rdma_mg->server_compaction_thread_queuing[it.first]->load();
+            if(RCN_queue_len == 0 && RCN_av_core > RCN_most_core){
+              RCN_best_id = it.first;
+              RCN_most_core = RCN_av_core;
+            }
+          }          
+          aim = RCN_best_id;
+        }else{
+          aim = -1;
+        }
       }
     }
   }else{//Level N
     if(options_.usesubcompaction && compact->CanSubCompaction()){//LN + Sub
-      //Local + LN + Sub ↓
-      //Local_v_core = (double)rdma_mg->local_compute_core_number;//简化模型
-      double Local_relative_uti = (Local_core*Local_utilization)/(100.0*Local_v_core);
-      double Local_v_av_core = Local_v_core *
-                                (Local_relative_uti > 1.0 ? 0.000001:(1.0 - Local_relative_uti));
-      printf("Compaction Task Score 3: Local av core: %f\n", Local_v_av_core);
-      return -1;
-    }else{//LN no Sub
-      //最低优先级，仅根据utilization
-      //Local_v_core = (double)rdma_mg->local_compute_core_number;//简化模型
-      //return -1;
-      double Local_relative_uti = (Local_core*Local_utilization)/(100.0*Local_v_core);
-      double Local_v_av_core = Local_v_core *
-                                (Local_relative_uti > 1.0 ? 0.000001:(1.0 - Local_relative_uti));
-                           
-      int RCN_best_id=-1;
-      double RCN_most_core=0.0;
-      for(auto it : RCN_core){
-        double RCN_utilization = rdma_mg->server_cpu_percent[it.first]->load();
-        double RCN_v_core = it.second;
-        double RCN_relative_uti = (it.second*RCN_utilization)/(100.0*RCN_v_core);
-        double RCN_v_av_core = RCN_v_core *
-                                (RCN_relative_uti > 1.0 ? 0.000001:(1.0 - RCN_relative_uti));
-        if(RCN_v_av_core > RCN_most_core){
-          RCN_best_id = it.first;
-          RCN_most_core = RCN_v_av_core;
+      //Local↓
+      double Local_uti = Local_utilization_percent/100.0;
+      double Local_av_core = Local_core * (Local_uti > 1.0 ? 0.000001:(1.0 - Local_uti));
+      int Local_queuing = env_->GetQueueLen(CompactionThreadPool);
+      //double Local_max_achievable_parallel = options_.max_compute_subcompactions < task_parallelism ? options_.max_compute_subcompactions : task_parallelism;
+      //Local↑
+      if(Local_queuing >=2 || Local_av_core < 5){//本地到达繁忙的情况
+        int RCN_best_id=-1;
+        double RCN_most_core=0.0;
+        for(auto it : RCN_core){
+          double RCN_uti = rdma_mg->server_cpu_percent[it.first]->load() / 100.0;
+          double RCN_core = it.second;
+          double RCN_av_core = RCN_core * (RCN_uti > 1.0 ? 0.000001:(1.0 - RCN_uti));
+          int RCN_queue_len = rdma_mg->server_compaction_thread_queuing[it.first]->load();
+          if(RCN_queue_len < Local_queuing && RCN_av_core > RCN_most_core){
+            RCN_best_id = it.first;
+            RCN_most_core = RCN_av_core;
+          }
         }
-      }
-
-      if(Local_v_av_core < 1.0 && RCN_most_core < 1.0){
-        usleep(compact->level()*50);
-        printf("CompactionTaskWhereToGo : busy!\n");
-        return CompactionTaskWhereToGo(compact);
-      }
-      printf("Compaction Task Score 4 (FreeCore): Local: %f, RCN: %f\n", Local_v_av_core, RCN_most_core);
-      if(Local_v_av_core > 6.0){
-        aim = -1;
-      }else if(RCN_most_core > 4.0 && RCN_most_core/Local_v_av_core > 1.5) {
-        aim = RCN_best_id;
+        if(RCN_most_core > Local_av_core){
+          aim = RCN_best_id;
+        }else{
+          aim = -1;
+        }
       }else{
         aim = -1;
       }
-
+    }else{//LN no Sub 
+      //最低优先级，仅根据utilization
+      double Local_uti = Local_utilization_percent/100.0;
+      double Local_av_core = Local_core * (Local_uti > 1.0 ? 0.000001:(1.0 - Local_uti));
+      int Local_queuing = env_->GetQueueLen(CompactionThreadPool);
+      if(Local_queuing!=0){ //尽可能卸载
+        int RCN_best_id=-1;
+        double RCN_most_core=0.0;
+        for(auto it : RCN_core){
+          double RCN_uti = rdma_mg->server_cpu_percent[it.first]->load() / 100.0;
+          double RCN_core = it.second;
+          double RCN_av_core = RCN_core * (RCN_uti > 1.0 ? 0.000001:(1.0 - RCN_uti));
+          int RCN_queue_len = rdma_mg->server_compaction_thread_queuing[it.first]->load();
+          if(RCN_queue_len < Local_queuing && RCN_av_core > RCN_most_core){
+            RCN_best_id = it.first;
+            RCN_most_core = RCN_av_core;
+          }
+        }
+        if(RCN_most_core > Local_av_core){
+          aim = RCN_best_id;
+        }else{
+          aim = -1;
+        }        
+      }else{
+        aim = -1;
+      }
     }
   }
   printf("CompactionTaskWhereToGo : Answer is %d\n",aim);
@@ -7739,6 +7751,10 @@ Status DBImpl::PickupTableToWrite(bool force, uint64_t seq_num, MemTable*& mem_r
     size_t level0_filenum = versions_->NumLevelFiles(0);
     if (imm_.current_memtable_num() >= config::Immutable_StopWritesTrigger
         || level0_filenum >= config::kL0_StopWritesTrigger) {//LZY:imm太多，或者level0写停顿上限
+      int stallCase = 0;
+      if(imm_.current_memtable_num() >= config::Immutable_StopWritesTrigger) stallCase+=1;
+      if(level0_filenum >= config::kL0_StopWritesTrigger) stallCase+=2;
+      auto start_stall_t = std::chrono::high_resolution_clock::now();
       // We have filled up the current memtable, but the previous
       // one is still being compacted, so we wait.
       // the wait will never get signalled.
@@ -7757,10 +7773,15 @@ Status DBImpl::PickupTableToWrite(bool force, uint64_t seq_num, MemTable*& mem_r
 //        printf("thread was waked up\n");
         mem_r = mem_.load();
       }
+      auto end_stall_t = std::chrono::high_resolution_clock::now();
+      int duration = std::chrono::duration_cast<std::chrono::microseconds>(end_stall_t - start_stall_t).count();
+      if(stallCase % 2==1) AddWriteStopManyImm(duration);
+      if(stallCase / 2==1) AddWriteStopManyL0(duration);
 //      imm_mtx.unlock();
     } else if(level0_filenum > config::kL0_SlowdownWritesTrigger && !delayed){//LZY:Level0 写延缓
       env_->SleepForMicroseconds(1000);
       delayed = true;
+      AddDelay(1000);
     }else{ //没啥事
       std::unique_lock<std::mutex> l(superversion_memlist_mtx);
 //      assert(locked == false);
