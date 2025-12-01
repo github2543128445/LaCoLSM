@@ -472,7 +472,7 @@ DBImpl::~DBImpl() {
 }
 // put the memtable to immutable table and flush all immutable to remote memory if the
 // immutable trigger is 1. Wait for all the background task to finish.
-void DBImpl::WaitforAllbgtasks(bool clear_mem) {
+void DBImpl::WaitforAllbgtasks(bool clear_mem) { //仅在析构DB时调用
 //  slow_down_compaction.store(false);
   if (clear_mem){
     std::unique_lock<std::mutex> lck(superversion_memlist_mtx);
@@ -1299,9 +1299,9 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     void* function_args = nullptr;
     BGThreadMetadata* thread_pool_args1 = new BGThreadMetadata{.db = this, .func_args = function_args};
     env_->Schedule(BGWork_Compaction, static_cast<void*>(thread_pool_args1), ThreadPoolType::CompactionThreadPool);
-    //LZYDEL 不知道为什么用两个
-    //BGThreadMetadata* thread_pool_args2 = new BGThreadMetadata{.db = this, .func_args = function_args};
-    //env_->Schedule(BGWork_Compaction, static_cast<void*>(thread_pool_args2), ThreadPoolType::CompactionThreadPool);
+    //不知道为什么用两个
+    BGThreadMetadata* thread_pool_args2 = new BGThreadMetadata{.db = this, .func_args = function_args};
+    env_->Schedule(BGWork_Compaction, static_cast<void*>(thread_pool_args2), ThreadPoolType::CompactionThreadPool);
     DEBUG("Schedule a Compaction !\n");
   }
 }
@@ -2295,7 +2295,7 @@ void DBImpl::BackgroundCall() {//不调用-LZY
   MaybeScheduleFlushOrCompaction();
 //  undefine_mutex.Unlock();
 }
-void DBImpl::BackgroundFlush(void* p) {//目前依然是由计算节点运行-LZY
+void DBImpl::BackgroundFlush(void* p) {//flush task具体执行
   //Tothink: why there is a Lock, which data structure is this mutex protecting
 //  undefine_mutex.Lock();
 //  assert(background_compaction_scheduled_);
@@ -4349,8 +4349,9 @@ void DBImpl::BackgroundCompactionOrDistribute(void *p){
     if (is_manual) {
       printf("!!!BackgroundCompactionOrDistribute:is_manual 2!!!\n");
     }
+    MaybeScheduleFlushOrCompaction();//LZYADD 感觉挪里面合适
   }//end of if (versions_->NeedsCompaction()) 
-  MaybeScheduleFlushOrCompaction();
+  //MaybeScheduleFlushOrCompaction();//LZYDEL
 } 
 #ifdef NEARDATACOMPACTION //LZY:这是一直有的
 void DBImpl::BackgroundCompaction(void* p) { BackgroundCompactionOrDistribute(p);}//LZYchange
@@ -7627,7 +7628,7 @@ Status DBImpl::Delete(const WriteOptions& options, const Slice& key) {
 //
 //  return status;
 //}
-Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) { //写批次写入
+Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) { //写批次写入 --db_bench里不用这个
 //  Writer w(&undefine_mutex);
 //  w.batch = updates;
 //  w.sync = options.sync;

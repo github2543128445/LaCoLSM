@@ -59,7 +59,7 @@ class ThreadPool{
         }
       }
 
-      printf("BGThread: queue len %d\n", queue_.size());
+      //printf("BGThread: queue len %d\n", queue_.size());
       auto func = std::move(queue_.front().function);
       void* args = std::move(queue_.front().args);
       queue_.pop_front();
