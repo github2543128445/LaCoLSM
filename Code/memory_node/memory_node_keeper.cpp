@@ -137,7 +137,7 @@ TimberSaw::Memory_Node_Keeper::Memory_Node_Keeper(bool use_sub_compaction,
 //        printf("queue length has been too long %d elements in the queue\n", Compactor_pool_.queue_len_.load());
 //        return;
 //      }
-//      Compactor_pool_.Schedule(BGWork_Compaction, static_cast<void*>(thread_pool_args));
+//      Compactor_pool_.Schedule(BGWork_Offloader, static_cast<void*>(thread_pool_args));
 //      printf("Schedule a Compaction !\n");
 //    }
 //  }

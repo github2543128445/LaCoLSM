@@ -105,7 +105,15 @@ void PosixEnv::Schedule(
         return;
       }
       remote_compaction.Schedule(background_work_function, background_work_arg);
-      printf("Schedule RemoteCompactionThreadPool len : %d\n", remote_compaction.GetQueueLen());
+      break;
+    case OffloaderThreadPool:
+      if (offloader.queue_len_.load()>256){
+        //If there has already be enough compaction scheduled, then drop this one
+        DEBUG_arg("OffloaderThreadPool : queue length has been too long %d elements in the queue\n", offloader.queue_len_.load());
+        return;
+      }
+      offloader.Schedule(background_work_function, background_work_arg);
+      printf("Schedule OffloaderThreadPool len : %d\n", remote_compaction.GetQueueLen());
       break;
 //    case SubcompactionThreadPool:
 //      subcompaction.Schedule(background_work_function, background_work_arg);
@@ -127,6 +135,9 @@ unsigned int PosixEnv::Queue_Length_Quiry(ThreadPoolType type){
       break;
     case RemoteCompactionThreadPool:
       return remote_compaction.queue_len_.load();
+      break;
+    case OffloaderThreadPool:
+      return offloader.queue_len_.load();
       break;
     default:
       return 0-1;

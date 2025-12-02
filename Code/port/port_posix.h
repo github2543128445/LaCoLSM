@@ -97,7 +97,7 @@
 #define TABLE_STRATEGY 1 // 0 PURE block based, 1 pure byte-addressable, 2 adaptive according to local cache size limit.
 #define TABLE_CACHE_SCALING_FACTOR 8
 #define USESEQITERATOR
-#define NEARDATACOMPACTION 0 // 0 source CN Compaction, 1 near data compaction, 2 dynamic
+#define NEARDATACOMPACTION 2 // 0 source CN Compaction, 1 near data compaction, 2 dynamic
 //#define CHECK_COMPACTION_TIME
 #define CHECK_INSERT_LAT
 //#define PERFECT_THREAD_NUMBER_FOR_BGTHREADS //DO NOT OPEN-LZY 

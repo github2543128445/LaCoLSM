@@ -747,6 +747,9 @@ class PosixEnv : public Env {
       case RemoteSubCompactionThreadPool:
         remote_subcompaction.SetBackgroundThreads(num);
         break;
+      case OffloaderThreadPool:
+        offloader.SetBackgroundThreads(num);
+        break;
       default:
         break;
     }
@@ -784,6 +787,8 @@ class PosixEnv : public Env {
   ThreadPool subcompaction;
   ThreadPool remote_compaction;
   ThreadPool remote_subcompaction;
+  ThreadPool offloader;
+
   PosixLockTable locks_;  // Thread-safe.
   Limiter mmap_limiter_;  // Thread-safe.
   Limiter fd_limiter_;    // Thread-safe.
@@ -800,6 +805,8 @@ public:
         return remote_compaction.GetRunningNum();
       case RemoteSubCompactionThreadPool:
         return remote_subcompaction.GetRunningNum();
+      case OffloaderThreadPool:
+        return offloader.GetRunningNum();
       default:
         return 0;
     }
@@ -816,6 +823,8 @@ public:
         return remote_compaction.GetThreadLimit();
       case RemoteSubCompactionThreadPool:
         return remote_subcompaction.GetThreadLimit();
+      case OffloaderThreadPool:
+        return offloader.GetThreadLimit();
       default:
         return 0;
     }
@@ -832,6 +841,8 @@ public:
         return remote_compaction.GetQueueLen();
       case RemoteSubCompactionThreadPool:
         return remote_subcompaction.GetQueueLen();
+      case OffloaderThreadPool:
+        return offloader.GetQueueLen();
       default:
         return 0;
     }

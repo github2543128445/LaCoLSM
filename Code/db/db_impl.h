@@ -781,6 +781,7 @@ class DBImpl : public DB{
   void MaybeScheduleFlushOrCompaction() EXCLUSIVE_LOCKS_REQUIRED(undefine_mutex);
   static void BGWork_Flush(void* thread_args);
   static void BGWork_Compaction(void* thread_args);
+  static void BGWork_Offloader(void* thread_args);
   void Other_Compaction_Handler1(void* arg);//LZYADD
   void Other_Compaction_Handler2(void* arg);//LZYADD
   void Other_Compaction_Handler3(void* arg);//LZYADD
@@ -838,6 +839,7 @@ class DBImpl : public DB{
       std::shared_ptr<RemoteMemTableMetaData>& sstable, VersionEdit* edit);
 //  SuperVersion* GetReferencedSuperVersion(DBImpl* db);
   void NearDataCompaction(Compaction* c);
+  void LocalCompaction(Compaction* c);
   void RemoteDataCompaction(Compaction* c,uint8_t target_node_id);//LZYADD
 //  void Communication_To_Home_Node();
   void Edit_sync_to_remote(VersionEdit* edit, uint8_t target_node_id);

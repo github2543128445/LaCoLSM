@@ -286,6 +286,7 @@ printf("DB Impl1: cp1\n");
 #else
     env_->SetBackgroundThreads(options_.now_local_compactions,ThreadPoolType::CompactionThreadPool);
     env_->SetBackgroundThreads(options_.now_remote_compactions,ThreadPoolType::RemoteCompactionThreadPool);
+    env_->SetBackgroundThreads(options_.offloader_thread_num,ThreadPoolType::OffloaderThreadPool);
 #endif
     Unpin_bg_pool_.SetBackgroundThreads(1);
 //    if (options_.block_cache != nullptr){
@@ -387,6 +388,7 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname, //实际�
 #else
   env_->SetBackgroundThreads(options_.now_local_compactions,ThreadPoolType::CompactionThreadPool);
   env_->SetBackgroundThreads(options_.now_remote_compactions,ThreadPoolType::RemoteCompactionThreadPool);
+  env_->SetBackgroundThreads(options_.offloader_thread_num,ThreadPoolType::OffloaderThreadPool);
 
 #endif
 }
@@ -1298,10 +1300,10 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
 //    background_compaction_scheduled_ = true;
     void* function_args = nullptr;
     BGThreadMetadata* thread_pool_args1 = new BGThreadMetadata{.db = this, .func_args = function_args};
-    env_->Schedule(BGWork_Compaction, static_cast<void*>(thread_pool_args1), ThreadPoolType::CompactionThreadPool);
+    env_->Schedule(BGWork_Offloader, static_cast<void*>(thread_pool_args1), ThreadPoolType::OffloaderThreadPool);
     //不知道为什么用两个
     BGThreadMetadata* thread_pool_args2 = new BGThreadMetadata{.db = this, .func_args = function_args};
-    env_->Schedule(BGWork_Compaction, static_cast<void*>(thread_pool_args2), ThreadPoolType::CompactionThreadPool);
+    env_->Schedule(BGWork_Offloader, static_cast<void*>(thread_pool_args2), ThreadPoolType::OffloaderThreadPool);
     DEBUG("Schedule a Compaction !\n");
   }
 }
@@ -1311,9 +1313,17 @@ void DBImpl::BGWork_Flush(void* thread_arg) {//触发flush-LZY
   ((DBImpl*)p->db)->BackgroundFlush(p->func_args);
   delete static_cast<BGThreadMetadata*>(thread_arg);
 }
-void DBImpl::BGWork_Compaction(void* thread_arg) {//从线程池里ThreadPoolType::Other_CompactionThreadPool搞来一个, 触发Comapction -LZY
+void DBImpl::BGWork_Offloader(void* thread_arg) {//从线程池里ThreadPoolType::OffloaderThreadPool搞来一个, 分配任务 -LZY
   BGThreadMetadata* p = static_cast<BGThreadMetadata*>(thread_arg);
   ((DBImpl*)p->db)->BackgroundCompaction(p->func_args);//参数没用
+  delete static_cast<BGThreadMetadata*>(thread_arg);
+}
+void DBImpl::BGWork_Compaction(void* thread_arg) {//从线程池里ThreadPoolType::CompactionThreadPool搞来一个, 本地实行Comapction -LZY
+  BGThreadMetadata* p = static_cast<BGThreadMetadata*>(thread_arg);
+  Compaction* c = (Compaction *)p->func_args;
+  printf("BGWork_Compaction: c->level = %d, intput0 = %d, input1 = %d\n",c->level(),c->num_input_files(0),c->num_input_files(1));
+  ((DBImpl*)p->db)->LocalCompaction(c);
+  delete c;
   delete static_cast<BGThreadMetadata*>(thread_arg);
 }
 Status DBImpl::DoRemoteCompactionWork2(CompactionState* compact,uint8_t target_node_id){//LZYTODO 仿MN端的Memory_Node_Keeper::DoCompactionWork
@@ -2719,15 +2729,18 @@ int DBImpl::CompactionTaskWhereToGoMod3(Compaction* compact){
   printf("RemoteCPU_utilization size = %d\n",RemoteCPU_utilization.size());
   if(RemoteCPU_utilization.size() == 2){//先简化模型, 变成2CN-1MN, 测试其他节点Compaction的可能性
     if(distribute_num == 2){
+      printf("Now CN Compaction Thread = %d/%d, %d queuing\n",env_->GetRunningNum(CompactionThreadPool),env_->GetThreadLimit(CompactionThreadPool),env_->GetQueueLen(CompactionThreadPool));
       distribute_num = (distribute_num+1)%3;
       return -1;
     } 
     if(distribute_num == 0) {
+      printf("Now MN Compaction Thread = %d/%d, %d queuing\n",rdma_mg->server_compaction_thread_using.at(shard_target_node_id)->load(),rdma_mg->server_compaction_thread_limit.at(shard_target_node_id)->load(),rdma_mg->server_compaction_thread_queuing.at(shard_target_node_id)->load());
       distribute_num = (distribute_num+1)%3;
-      return 0; 
+      return shard_target_node_id; 
     }
     for(auto iter:RemoteCPU_utilization){
       if(iter.first != rdma_mg->node_id && iter.first%2 != 0) {
+        printf("Now Remote CN Compaction Thread = %d/%d, %d queuing\n",rdma_mg->server_compaction_thread_using.at(iter.first)->load(),rdma_mg->server_compaction_thread_limit.at(iter.first)->load(),rdma_mg->server_compaction_thread_queuing.at(iter.first)->load());
         distribute_num = (distribute_num+1)%3;
         return iter.first; 
       }
@@ -4269,7 +4282,7 @@ void DBImpl::BackgroundCompactionOrDistribute(void *p){
        DEBUG_arg("Trival compaction< level 0 file number is %d\n", c->num_input_files(0));
       } else { //LZY : 需要进行Compaction, 先决定谁去做
         //auto startwork = std::chrono::high_resolution_clock::now();
-        int worknode = CompactionTaskWhereToGoPureRemote(c);
+        int worknode = CompactionTaskWhereToGoMod3(c);
         //auto endwork = std::chrono::high_resolution_clock::now();
         //int distribute_latancy = std::chrono::duration_cast<std::chrono::microseconds>(endwork - startwork).count();
         //distribute_lat_append(distribute_latancy);
@@ -4288,28 +4301,10 @@ void DBImpl::BackgroundCompactionOrDistribute(void *p){
 
         if(worknode == -1){//自己做
           compaction_time_local++;
-          auto start = std::chrono::high_resolution_clock::now();
-          CompactionState* compact = new CompactionState(c);
-          if (options_.usesubcompaction && c->CanSubCompaction()){
-            status = DoCompactionWorkWithSubcompaction(compact);
-          } else {
-            status = DoCompactionWork(compact);
-          }
-          DEBUG("Non-trivalcompaction!\n");
-          if (!status.ok()) RecordBackgroundError(status);
-          CleanupCompaction(compact);
-          auto stop = std::chrono::high_resolution_clock::now();
-          int compaction_latancy = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start).count();
-          compaction_speed_append2(sub_level,compaction_size,compaction_latancy);
-          // #ifdef CHECK_COMPACTION_TIME
-          // auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
-          // uint64_t total_size = 0;
-          // total_size = c->Total_data_size();
-          // total_size = total_size/1024/1024; // in MB
-          // duration_time_in_level[c->level()] += duration.count()/1000;
-          // compaction_size_in_level[c->level()] += total_size;
-          // #endif
-
+          BGThreadMetadata* thread_pool_args = new BGThreadMetadata{.db = this, .func_args = c};
+          printf("BackgroundCompactionOrDistribute: c->level = %d, intput0 = %d, input1 = %d\n",c->level(),c->num_input_files(0),c->num_input_files(1));
+          env_->Schedule(BGWork_Compaction, static_cast<void*>(thread_pool_args), ThreadPoolType::CompactionThreadPool);//用线程池的方式分离出去
+          c = nullptr;
         } else if(worknode%2 == 0){//MN做
           compaction_time_in_memory[worknode]++;
           auto start = std::chrono::high_resolution_clock::now();
@@ -4353,6 +4348,43 @@ void DBImpl::BackgroundCompactionOrDistribute(void *p){
   }//end of if (versions_->NeedsCompaction()) 
   //MaybeScheduleFlushOrCompaction();//LZYDEL
 } 
+void DBImpl::LocalCompaction(Compaction* c){
+  printf("LocalCompaction: c->level = %d, intput0 = %d, input1 = %d\n",c->level(),c->num_input_files(0),c->num_input_files(1));
+  int compaction_size = c->Total_data_size();
+  int sub_level;
+  if(c->level() == 0){
+    if(options_.usesubcompaction && c->CanSubCompaction()) sub_level = 1;
+    else sub_level = 2;
+  }else{
+    if(options_.usesubcompaction && c->CanSubCompaction()) sub_level = 3;
+    else sub_level = 4;
+  }
+  auto start = std::chrono::high_resolution_clock::now();
+
+  Status status;
+  CompactionState* compact = new CompactionState(c);
+  if (options_.usesubcompaction && c->CanSubCompaction()){
+    status = DoCompactionWorkWithSubcompaction(compact);
+  } else {
+    status = DoCompactionWork(compact);
+  }
+  DEBUG("Non-trivalcompaction!\n");
+  if (!status.ok()) RecordBackgroundError(status);
+  CleanupCompaction(compact);
+
+  auto stop = std::chrono::high_resolution_clock::now();
+  int compaction_latancy = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start).count();
+  compaction_speed_append2(sub_level,compaction_size,compaction_latancy);
+  printf("LocalCompaction:finish\n");
+  // #ifdef CHECK_COMPACTION_TIME
+  // auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
+  // uint64_t total_size = 0;
+  // total_size = c->Total_data_size();
+  // total_size = total_size/1024/1024; // in MB
+  // duration_time_in_level[c->level()] += duration.count()/1000;
+  // compaction_size_in_level[c->level()] += total_size;
+  // #endif
+}
 #ifdef NEARDATACOMPACTION //LZY:这是一直有的
 void DBImpl::BackgroundCompaction(void* p) { BackgroundCompactionOrDistribute(p);}//LZYchange
 // void DBImpl::BackgroundCompaction(void* p) { //LZY:参数好像没用到\目前依然是由计算节点运行
