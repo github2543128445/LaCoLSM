@@ -1,8 +1,8 @@
 [submodule "Code/third_party/benchmark"]
 	path = Code/third_party/benchmark
-	url = https://hub.yzuu.cf/google/benchmark.git
+	url = https://github.com/google/benchmark
 	branch = main
 [submodule "Code/third_party/googletest"]
 	path = Code/third_party/googletest
-	url = https://hub.yzuu.cf/google/googletest.git
+	url = https://github.com/google/googletest.git
 	branch = main
